@@ -47,7 +47,7 @@ fun ExpenseApp(model: ExpenseViewModel) {
     MaterialTheme(colorScheme = lightColorScheme(primary = Teal, secondary = Color(0xFF496563), background = Color(0xFFF7F8FA))) {
         if (addedAccount != null) AlertDialog(
             onDismissRequest = model::dismissAccountAdded,
-            title = { Text("账户新增成功") },
+            title = { Text("已新增账户") },
             text = { Text("付款账户「$addedAccount」已成功保存。") },
             confirmButton = { TextButton(onClick = model::dismissAccountAdded) { Text("确定") } }
         )
