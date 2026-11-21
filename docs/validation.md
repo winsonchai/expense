@@ -1,6 +1,24 @@
 # Validation and acceptance
 
-## Automated
+## Version 0.3.0 installation boundary
+
+The supplied preview package installs alongside the old prototype because the original debug signing key was not retained. Existing installed-app data stays with that application and is not imported by the preview. The schema migration test below validates the original application ID's data upgrade, separately from installing the isolated preview.
+
+## Version 0.3.0 local results
+
+- 13 core unit tests passed; 3 SQLite upgrade tests passed.
+- The original-package debug build and Android lint passed with no errors.
+- Preview-package build, signature and permission checks are recorded at delivery after completion.
+- The previous 0.2 APK was inspected to confirm its version and original table shape. Its signing certificate differs from the newly generated test key; the delivered preview therefore has a different package ID and separate data.
+- Device UI acceptance remains pending. Automated SQLite migration tests are not Android instrumentation tests.
+
+## Version 0.3.0 checks
+
+Run `./gradlew :core:test :app:assembleDebug :app:lintDebug`, `python3 scripts/test_migration.py` and the packaged permission check. The migration test exercises the shipped SQL against an original-schema SQLite database, verifies stored data and compares the resulting schema with Room's exported v2 schema.
+
+New device acceptance cases (not yet verified on a device): English labels on every tab/dialog/error; account edits and success acknowledgement; Quick save off/on persistence after restart; complete receipts saved once with Quick save on; duplicates/missing fields/refunds/declined payments held as drafts; invoice/time display, search and CSV; update with old records still present and linked to their accounts.
+
+## Original prototype automated checks
 
 Run `./gradlew :core:test :app:assembleDebug :app:lintDebug`.
 

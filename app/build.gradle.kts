@@ -4,6 +4,8 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
     id("com.google.devtools.ksp")
 }
+val previewKeystorePath = providers.environmentVariable("EXPENSE_PREVIEW_KEYSTORE").orNull
+
 android {
     namespace = "com.winsonchai.expense"
     compileSdk = 35
@@ -11,8 +13,28 @@ android {
         applicationId = "com.winsonchai.expense"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = 3
+        versionName = "0.3.0"
+        manifestPlaceholders["appLabel"] = "Expense"
+    }
+    signingConfigs {
+        if (!previewKeystorePath.isNullOrBlank()) create("previewLocal") {
+            storeFile = file(previewKeystorePath)
+            // Dedicated test key only. Release signing must use separately managed secrets.
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+        }
+    }
+    buildTypes {
+        create("preview") {
+            initWith(getByName("debug"))
+            if (!previewKeystorePath.isNullOrBlank()) signingConfig = signingConfigs.getByName("previewLocal")
+            applicationIdSuffix = ".preview"
+            versionNameSuffix = "-preview"
+            matchingFallbacks += listOf("debug")
+            manifestPlaceholders["appLabel"] = "Expense Preview"
+        }
     }
     buildFeatures { compose = true }
     compileOptions {

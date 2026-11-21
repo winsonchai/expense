@@ -28,7 +28,7 @@ data class ImportedReceipt(val path: String?, val mime: String, val hash: String
 class ReceiptImporter(private val context: Context) {
     /** Copy while the calling intent's read grant is valid. Never trust the filename or claimed size. */
     suspend fun copy(uri: Uri): ImportedReceipt = withContext(Dispatchers.IO) {
-        require(uri.scheme == "content") { "只接受系统分享或文件选择器授权的文件。" }
+        require(uri.scheme == "content") { "Use a file authorized by system sharing or the document picker." }
         val directory = File(context.filesDir, "receipts").apply { mkdirs() }
         val temporary = File(directory, "${UUID.randomUUID()}.tmp")
         try {
@@ -41,27 +41,27 @@ class ReceiptImporter(private val context: Context) {
                         val count = input.read(buffer)
                         if (count < 0) break
                         total += count
-                        require(total <= MAX_RECEIPT_BYTES) { "收据超过 20 MiB，请选择较小文件。" }
+                        require(total <= MAX_RECEIPT_BYTES) { "The receipt exceeds 20 MiB. Choose a smaller file." }
                         output.write(buffer, 0, count)
                         digest.update(buffer, 0, count)
                     }
-                    require(total > 0) { "文件为空。" }
+                    require(total > 0) { "The file is empty." }
                 }
-            } ?: error("无法读取文件，请重新分享以授予读取权限。")
+            } ?: error("Unable to read the file. Share it again to grant access.")
             val header = temporary.inputStream().use { input -> ByteArray(12).also { input.read(it) } }
             val pdf = String(header.copyOfRange(0, 5), Charsets.US_ASCII) == "%PDF-"
             val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
             if (!pdf) BitmapFactory.decodeFile(temporary.path, options)
-            require(pdf || (options.outWidth > 0 && options.outHeight > 0)) { "不支持该格式或图片已损坏；请选择图片或 PDF。" }
+            require(pdf || (options.outWidth > 0 && options.outHeight > 0)) { "Unsupported format or damaged image. Select an image or PDF." }
             val destination = File(directory, "${UUID.randomUUID()}.${if (pdf) "pdf" else "img"}")
-            check(temporary.renameTo(destination)) { "无法保存收据，请检查手机储存空间。" }
+            check(temporary.renameTo(destination)) { "Unable to save the receipt. Check available device storage." }
             ImportedReceipt(destination.path, if (pdf) "application/pdf" else "image/*", digest.digest().toHex(), "")
         } finally { temporary.delete() }
     }
 
     fun text(value: String): ImportedReceipt {
-        require(value.length <= MAX_TEXT_CHARS) { "分享文字过长，请分享单份收据。" }
-        require(value.isNotBlank()) { "没有收到交易文字。" }
+        require(value.length <= MAX_TEXT_CHARS) { "The shared text is too long. Share one receipt at a time." }
+        require(value.isNotBlank()) { "No transaction text was received." }
         return ImportedReceipt(null, "text/plain", MessageDigest.getInstance("SHA-256").digest(value.toByteArray()).toHex(), value)
     }
 
@@ -81,7 +81,7 @@ class ReceiptImporter(private val context: Context) {
             val result = if (receipt.mime == "application/pdf") {
                 ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY).use { descriptor ->
                     PdfRenderer(descriptor).use { renderer ->
-                        require(renderer.pageCount in 1..5) { "PDF 仅支持 1–5 页，请分开分享。" }
+                        require(renderer.pageCount in 1..5) { "PDFs must contain 1–5 pages. Split larger files before sharing." }
                         val pages = mutableListOf<String>()
                         for (index in 0 until renderer.pageCount) {
                             val bitmap = renderer.openPage(index).use(::renderPage)
@@ -116,10 +116,10 @@ class ReceiptImporter(private val context: Context) {
     private fun decodeImage(file: File): Bitmap {
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
         BitmapFactory.decodeFile(file.path, bounds)
-        require(bounds.outWidth > 0 && bounds.outHeight > 0) { "无法解码图片。" }
+        require(bounds.outWidth > 0 && bounds.outHeight > 0) { "Unable to decode the image." }
         var sample = 1
         while (maxOf(bounds.outWidth, bounds.outHeight) / sample > 2400) sample *= 2
-        val bitmap = BitmapFactory.decodeFile(file.path, BitmapFactory.Options().apply { inSampleSize = sample }) ?: error("图片已损坏。")
+        val bitmap = BitmapFactory.decodeFile(file.path, BitmapFactory.Options().apply { inSampleSize = sample }) ?: error("The image is damaged.")
         val orientation = runCatching { ExifInterface(file).getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL) }.getOrDefault(ExifInterface.ORIENTATION_NORMAL)
         val matrix = Matrix().apply {
             when (orientation) {

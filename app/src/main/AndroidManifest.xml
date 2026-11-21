@@ -3,7 +3,7 @@
     xmlns:tools="http://schemas.android.com/tools">
     <!-- Bundled OCR works offline; remove the networking permission contributed by SDK manifests. -->
     <uses-permission android:name="android.permission.INTERNET" tools:node="remove" />
-    <application android:label="分享到账本" android:allowBackup="false"
+    <application android:label="${appLabel}" android:allowBackup="false"
         android:fullBackupContent="@xml/backup_rules" android:dataExtractionRules="@xml/data_extraction_rules"
         android:icon="@drawable/ic_expense" tools:targetApi="33"
         android:enableOnBackInvokedCallback="true" android:supportsRtl="true" android:theme="@style/Theme.Expense">

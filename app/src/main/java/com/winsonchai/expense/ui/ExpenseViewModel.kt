@@ -8,6 +8,7 @@ import androidx.lifecycle.viewModelScope
 import com.winsonchai.expense.core.Csv
 import com.winsonchai.expense.core.Money
 import com.winsonchai.expense.core.ReceiptParser
+import com.winsonchai.expense.core.QuickSave
 import com.winsonchai.expense.data.*
 import com.winsonchai.expense.importing.*
 import kotlinx.coroutines.*
@@ -16,6 +17,8 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import java.io.File
 import java.time.LocalDate
+import java.time.LocalTime
+import java.time.format.DateTimeFormatter
 
 class ExpenseViewModel(app: Application, private val state: SavedStateHandle) : AndroidViewModel(app) {
     private val dao = ExpenseDatabase.get(app).dao()
@@ -26,6 +29,12 @@ class ExpenseViewModel(app: Application, private val state: SavedStateHandle) : 
     val message = MutableStateFlow<String?>(null)
     val savingAccount = MutableStateFlow(false)
     val addedAccount = state.getStateFlow<String?>("addedAccount", null)
+    private val preferences = app.getSharedPreferences("expense_settings", 0)
+    val quickSave = MutableStateFlow(preferences.getBoolean("quick_save", false))
+    fun setQuickSave(enabled: Boolean) {
+        quickSave.value = enabled
+        preferences.edit().putBoolean("quick_save", enabled).apply()
+    }
     val importer = ReceiptImporter(app)
     private val writes = Mutex()
 
@@ -39,7 +48,7 @@ class ExpenseViewModel(app: Application, private val state: SavedStateHandle) : 
     private fun work(block: suspend () -> Unit) = viewModelScope.launch {
         try { block() }
         catch (e: CancellationException) { throw e }
-        catch (e: Exception) { message.value = e.message ?: "操作失败，请重试。" }
+        catch (e: Exception) { message.value = e.message ?: "The operation failed. Please try again." }
     }
 
     fun open(expense: Expense) {
@@ -49,7 +58,7 @@ class ExpenseViewModel(app: Application, private val state: SavedStateHandle) : 
     }
     fun newExpense() {
         if (busy.value) return
-        val expense = Expense(date = LocalDate.now().toString())
+        val expense = Expense(date = LocalDate.now().toString(), transactionTime = LocalTime.now().format(DateTimeFormatter.ofPattern("HH:mm:ss")))
         open(expense)
         work { writes.withLock { dao.put(expense) } }
     }
@@ -72,11 +81,12 @@ class ExpenseViewModel(app: Application, private val state: SavedStateHandle) : 
         val amount = Money.minorUnits(current.amountInput, current.currency)
         val validDate = runCatching { LocalDate.parse(current.date) }.isSuccess
         val error = when {
-            !validDate -> "请输入有效日期，格式 YYYY-MM-DD。"
-            amount == null -> "请输入大于零的金额，精度须符合所选币种。"
-            current.source != "手动" && !reviewed -> "请核对收据，并确认这是已完成的消费支出。"
-            duplicates(current).isNotEmpty() && !duplicateAccepted -> "这份凭证已导入过，请确认是否继续保存。"
-            current.accountId != null && accounts.value.none { it.id == current.accountId && it.method == current.method } -> "付款账户与付款方式不符，请重新选择。"
+            current.transactionTime.isNotBlank() && runCatching { LocalTime.parse(current.transactionTime) }.isFailure -> "Enter a valid time in HH:mm or HH:mm:ss format, or leave it empty."
+            !validDate -> "Enter a valid date in YYYY-MM-DD format."
+            amount == null -> "Enter a positive amount with the precision required by the selected currency."
+            current.source != "Manual" && !reviewed && !quickSave.value -> "Check the receipt and confirm this is a completed purchase."
+            duplicates(current).isNotEmpty() && !duplicateAccepted -> "This receipt was imported before. Confirm whether to save it again."
+            current.accountId != null && accounts.value.none { it.id == current.accountId && it.method == current.method } -> "The payment account does not match the payment method. Select it again."
             else -> null
         }
         if (error != null) { message.value = error; return }
@@ -86,7 +96,7 @@ class ExpenseViewModel(app: Application, private val state: SavedStateHandle) : 
                 writes.withLock { dao.put(current.copy(status = "SAVED", amountMinor = amount)) }
                 editor.value = null
                 state["editingId"] = null
-                message.value = "费用已保存。"
+                message.value = "Expense saved."
             } finally { busy.value = false }
         }
     }
@@ -103,17 +113,17 @@ class ExpenseViewModel(app: Application, private val state: SavedStateHandle) : 
     }
 
     fun receive(uri: Uri? = null, text: String? = null) {
-        if (busy.value) { message.value = "正在处理上一份收据，请稍后重新分享。"; return }
+        if (busy.value) { message.value = "Another receipt is being processed. Share this one again when it finishes."; return }
         busy.value = true
         work {
-            var draft = Expense(source = if (uri == null) "分享文字" else "分享文件", warnings = "导入尚未完成，请核对或重新导入。")
+            var draft = Expense(source = if (uri == null) "Shared text" else "Shared file", warnings = "Import is incomplete. Check the details or import the receipt again.")
             try {
                 writes.withLock { dao.put(draft) }
                 editor.value = draft
                 state["editingId"] = draft.id
                 val imported = if (uri != null) importer.copy(uri) else importer.text(text.orEmpty())
                 draft = draft.copy(receiptPath = imported.path, receiptHash = imported.hash, mimeType = imported.mime,
-                    rawText = imported.text, source = when (imported.mime) { "text/plain" -> "分享文字"; "application/pdf" -> "分享 PDF"; else -> "分享图片" })
+                    rawText = imported.text, source = when (imported.mime) { "text/plain" -> "Shared text"; "application/pdf" -> "Shared PDF"; else -> "Shared image" })
                 // Retain the private original even if PDF decoding or OCR fails, or the process is stopped.
                 writes.withLock { dao.put(draft) }
                 editor.value = draft
@@ -122,12 +132,26 @@ class ExpenseViewModel(app: Application, private val state: SavedStateHandle) : 
                 val account = parsed.suggestedWallet?.let { provider -> accounts.value.filter { it.provider == provider && it.active }.singleOrNull() }
                 draft = draft.copy(rawText = raw, amountInput = parsed.amount.orEmpty(), currency = parsed.currency,
                     date = parsed.date.orEmpty(), candidates = parsed.amountCandidates.joinToString("|"),
-                    warnings = parsed.warnings.joinToString("\n"), accountId = account?.id, method = account?.method ?: "未指定")
+                    warnings = parsed.warnings.joinToString("\n"), accountId = account?.id, method = account?.method ?: "Unspecified",
+                    receiptNo = parsed.receiptNo.orEmpty(), transactionTime = parsed.transactionTime.orEmpty())
+                val duplicate = draft.receiptHash?.let { dao.hasDuplicate(it, draft.id) } ?: false
+                if (QuickSave.eligible(quickSave.value, parsed, duplicate)) {
+                    val saved = draft.copy(status = "SAVED", amountMinor = Money.minorUnits(draft.amountInput, draft.currency))
+                    writes.withLock { dao.put(saved) }
+                    editor.value = null
+                    state["editingId"] = null
+                    message.value = "Expense saved automatically. Open it in Records to edit the details."
+                    return@work
+                }
+                if (quickSave.value) draft = draft.copy(warnings = (listOf(
+                    if (duplicate) "This receipt was imported before. Check the existing record before saving again."
+                    else "Quick save needs clear required fields. Complete this draft and save it."
+                ) + parsed.warnings).joinToString("\n"))
                 writes.withLock { dao.put(draft) }
                 editor.value = draft
             } catch (e: CancellationException) { throw e }
             catch (e: Exception) {
-                draft = draft.copy(warnings = "无法完成识别：${e.message ?: "收据无法读取"}。可保留草稿并手动填写。")
+                draft = draft.copy(warnings = "Recognition could not finish: ${e.message ?: "Unable to read the receipt"}. Keep the draft and enter the details manually.")
                 writes.withLock { dao.put(draft) }
                 editor.value = draft
             } finally { busy.value = false }
@@ -136,8 +160,8 @@ class ExpenseViewModel(app: Application, private val state: SavedStateHandle) : 
 
     fun addAccount(method: String, provider: String, nickname: String, lastFour: String) {
         if (savingAccount.value || addedAccount.value != null) return
-        if (provider.isBlank() || nickname.isBlank()) { message.value = "请填写品牌／银行与账户昵称。"; return }
-        if (lastFour.isNotBlank() && !Regex("\\d{4}").matches(lastFour)) { message.value = "卡片末四位必须是 4 个数字。"; return }
+        if (provider.isBlank() || nickname.isBlank()) { message.value = "Enter a provider or bank and an account nickname."; return }
+        if (lastFour.isNotBlank() && !Regex("\\d{4}").matches(lastFour)) { message.value = "The card last four must contain exactly four digits."; return }
         val account = PaymentAccount(method = method, provider = provider.trim(), nickname = nickname.trim(), lastFour = lastFour)
         savingAccount.value = true
         work {
@@ -150,8 +174,8 @@ class ExpenseViewModel(app: Application, private val state: SavedStateHandle) : 
     fun dismissAccountAdded() { state["addedAccount"] = null }
     fun updateAccount(account: PaymentAccount, onSaved: () -> Unit = {}) {
         if (savingAccount.value) return
-        if (account.provider.isBlank() || account.nickname.isBlank()) { message.value = "请填写品牌／银行与账户昵称。"; return }
-        if (account.lastFour.isNotBlank() && !Regex("\\d{4}").matches(account.lastFour)) { message.value = "卡片末四位必须是 4 个数字。"; return }
+        if (account.provider.isBlank() || account.nickname.isBlank()) { message.value = "Enter a provider or bank and an account nickname."; return }
+        if (account.lastFour.isNotBlank() && !Regex("\\d{4}").matches(account.lastFour)) { message.value = "The card last four must contain exactly four digits."; return }
         savingAccount.value = true
         work {
             try {
@@ -168,15 +192,15 @@ class ExpenseViewModel(app: Application, private val state: SavedStateHandle) : 
             withContext(Dispatchers.IO) {
                 getApplication<Application>().contentResolver.openOutputStream(uri, "wt")?.bufferedWriter(Charsets.UTF_8)?.use { writer ->
                     writer.write("\uFEFF")
-                    writer.appendLine("date,amount,currency,category,merchant,payment_method,payment_account,note,source")
+                    writer.appendLine("date,time,receipt_number,amount,currency,category,merchant,payment_method,payment_account,note,source")
                     records.forEach { record ->
-                        writer.appendLine(listOf(record.date, Money.display(record.amountMinor!!, record.currency), record.currency,
+                        writer.appendLine(listOf(record.date, record.transactionTime, record.receiptNo, Money.display(record.amountMinor!!, record.currency), record.currency,
                             record.category, record.merchant, record.method, accountLookup[record.accountId]?.label().orEmpty(), record.note, record.source)
                             .joinToString(",", transform = Csv::cell))
                     }
-                } ?: error("无法写入所选文件。")
+                } ?: error("Unable to write to the selected file.")
             }
-            message.value = "已导出 ${records.size} 笔记录（CSV 不包含原始凭证）。"
+            message.value = "Exported ${records.size} expenses. CSV does not include receipt files."
         }
     }
 }

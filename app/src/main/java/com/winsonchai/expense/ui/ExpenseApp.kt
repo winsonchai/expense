@@ -21,6 +21,8 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.winsonchai.expense.core.Money
 import com.winsonchai.expense.data.*
@@ -47,17 +49,17 @@ fun ExpenseApp(model: ExpenseViewModel) {
     MaterialTheme(colorScheme = lightColorScheme(primary = Teal, secondary = Color(0xFF496563), background = Color(0xFFF7F8FA))) {
         if (addedAccount != null) AlertDialog(
             onDismissRequest = model::dismissAccountAdded,
-            title = { Text("已新增账户") },
-            text = { Text("付款账户「$addedAccount」已成功保存。") },
-            confirmButton = { TextButton(onClick = model::dismissAccountAdded) { Text("确定") } }
+            title = { Text("Account added") },
+            text = { Text("Payment account \"$addedAccount\" was saved successfully.") },
+            confirmButton = { TextButton(onClick = model::dismissAccountAdded) { Text("OK") } }
         )
         Scaffold(
             snackbarHost = { SnackbarHost(snackbar) },
             bottomBar = {
                 if (editor == null) NavigationBar {
-                    listOf("首页", "记录", "统计", "账户").forEachIndexed { index, title ->
+                    listOf("Home", "Records", "Stats", "Accounts", "Settings").forEachIndexed { index, title ->
                         NavigationBarItem(selected = tab == index, onClick = { tab = index },
-                            icon = { Text(listOf("⌂", "≡", "▥", "○")[index]) }, label = { Text(title) })
+                            icon = { Text(listOf("⌂", "≡", "▥", "○", "⚙")[index]) }, label = { Text(title) })
                     }
                 }
             }
@@ -68,10 +70,10 @@ fun ExpenseApp(model: ExpenseViewModel) {
                 } else {
                     Row(Modifier.fillMaxWidth().padding(vertical = 20.dp), verticalAlignment = Alignment.CenterVertically) {
                         Column(Modifier.weight(1f)) {
-                            Text("分享到账本", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-                            Text("个人开销 · 本机保存", style = MaterialTheme.typography.bodySmall)
+                            Text("Expense", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+                            Text("Personal expenses · Stored on this device", style = MaterialTheme.typography.bodySmall)
                         }
-                        if (tab != 3) TextButton(onClick = { export.launch("expense-${YearMonth.now()}.csv") }) { Text("导出 CSV") }
+                        if (tab < 3) TextButton(onClick = { export.launch("expense-${YearMonth.now()}.csv") }) { Text("Export CSV") }
                     }
                     Column(Modifier.verticalScroll(rememberScrollState()).weight(1f), verticalArrangement = Arrangement.spacedBy(14.dp)) {
                         when (tab) {
@@ -80,6 +82,7 @@ fun ExpenseApp(model: ExpenseViewModel) {
                             1 -> Records(expenses, accounts, model::open)
                             2 -> Statistics(expenses, accounts)
                             3 -> Accounts(accounts, model)
+                            4 -> Settings(model)
                         }
                         Spacer(Modifier.height(24.dp))
                     }
@@ -94,116 +97,119 @@ private fun Home(expenses: List<Expense>, accounts: List<PaymentAccount>, open: 
     val month = YearMonth.now().toString()
     Card(colors = CardDefaults.cardColors(containerColor = Teal), modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.padding(22.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Text("$month · 本月已确认支出", color = Color.White)
+            Text("$month · Saved expenses this month", color = Color.White)
             val records = expenses.filter { it.status == "SAVED" && it.date.startsWith(month) }
             if (records.isEmpty()) Text("MYR 0.00", color = Color.White, style = MaterialTheme.typography.headlineLarge)
             else records.groupBy { it.currency }.forEach { (currency, items) ->
                 Text("$currency ${total(items, currency)}", color = Color.White, style = MaterialTheme.typography.headlineMedium)
             }
-            Text("草稿不计入统计；不同币种分别汇总", color = Color.White, style = MaterialTheme.typography.bodySmall)
+            Text("Drafts are excluded. Each currency is totalled separately.", color = Color.White, style = MaterialTheme.typography.bodySmall)
         }
     }
     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-        Button(onClick = add, modifier = Modifier.weight(1f)) { Text("＋ 手动记账") }
-        OutlinedButton(onClick = import, modifier = Modifier.weight(1f)) { Text("导入收据") }
+        Button(onClick = add, modifier = Modifier.weight(1f)) { Text("+ Add expense") }
+        OutlinedButton(onClick = import, modifier = Modifier.weight(1f)) { Text("Import receipt") }
     }
-    Text("付款后，在钱包收据页点「分享」，选择「分享到账本」，再核对保存。", style = MaterialTheme.typography.bodyMedium)
+    Text("After paying, share the receipt from your wallet to Expense. Review and save, or enable Quick save in Settings.", style = MaterialTheme.typography.bodyMedium)
     val drafts = expenses.filter { it.status == "DRAFT" }
     if (drafts.isNotEmpty()) {
-        SectionTitle("待核对草稿 · ${drafts.size}")
+        SectionTitle("Drafts to review · ${drafts.size}")
         drafts.forEach { ExpenseRow(it, accounts, open) }
     }
-    SectionTitle("近期记录")
+    SectionTitle("Recent expenses")
     val saved = expenses.filter { it.status == "SAVED" }.take(8)
-    if (saved.isEmpty()) EmptyState("还没有费用记录", "添加第一笔开销，或从钱包分享一份收据。")
+    if (saved.isEmpty()) EmptyState("No expenses yet", "Add your first expense or share a receipt from your wallet.")
     saved.forEach { ExpenseRow(it, accounts, open) }
 }
 
 @Composable
 private fun Records(expenses: List<Expense>, accounts: List<PaymentAccount>, open: (Expense) -> Unit) {
     var query by rememberSaveable { mutableStateOf("") }
-    var category by rememberSaveable { mutableStateOf("全部分类") }
+    var category by rememberSaveable { mutableStateOf("All categories") }
     var accountId by rememberSaveable { mutableStateOf("") }
-    SectionTitle("费用记录")
-    Field(query, "搜索商家、日期或备注", { query = it })
-    Choice("分类", listOf("全部分类") + categories, category, { category = it })
-    Choice("账户", listOf("" to "全部账户") + accounts.map { it.id to it.label() }, accountId, { accountId = it })
+    SectionTitle("Expense records")
+    Field(query, "Search merchant, date, receipt number or notes", { query = it })
+    Choice("Category", listOf("All categories") + categories, category, { category = it })
+    Choice("Accounts", listOf("" to "All accounts") + accounts.map { it.id to it.label() }, accountId, { accountId = it })
     val filtered = expenses.filter { expense ->
-        (category == "全部分类" || expense.category == category) && (accountId.isEmpty() || expense.accountId == accountId) &&
-            (query.isBlank() || "${expense.date} ${expense.merchant} ${expense.note}".contains(query, ignoreCase = true))
+        (category == "All categories" || expense.category == category) && (accountId.isEmpty() || expense.accountId == accountId) &&
+            (query.isBlank() || "${expense.date} ${expense.transactionTime} ${expense.receiptNo} ${expense.merchant} ${expense.note}".contains(query, ignoreCase = true))
     }
-    if (filtered.isEmpty()) EmptyState("暂无匹配记录", "试试调整搜索条件。")
+    if (filtered.isEmpty()) EmptyState("No matching records", "Try different search filters.")
     filtered.forEach { ExpenseRow(it, accounts, open) }
 }
 
 @Composable
 private fun Statistics(expenses: List<Expense>, accounts: List<PaymentAccount>) {
     var month by rememberSaveable { mutableStateOf(YearMonth.now().toString()) }
-    SectionTitle("支出统计")
-    Field(month, "月份 YYYY-MM", { month = it })
+    SectionTitle("Spending statistics")
+    Field(month, "Month YYYY-MM", { month = it })
     val valid = runCatching { YearMonth.parse(month) }.isSuccess
-    if (!valid) { Text("请输入有效月份，例如 2026-11。"); return }
+    if (!valid) { Text("Enter a valid month, for example 2026-11."); return }
     val records = expenses.filter { it.status == "SAVED" && it.date.startsWith("$month-") }
-    if (records.isEmpty()) { EmptyState("本月暂无支出", "只有已确认保存的费用才计入统计。"); return }
+    if (records.isEmpty()) { EmptyState("No expenses this month", "Only saved expenses are included in statistics."); return }
     for ((currency, items) in records.groupBy { it.currency }) {
         SectionTitle("$currency ${total(items, currency)}")
-        Text("按分类", fontWeight = FontWeight.Bold)
+        Text("By category", fontWeight = FontWeight.Bold)
         items.groupBy { it.category }.forEach { (label, group) -> SummaryRow(label, "$currency ${total(group, currency)}") }
-        Text("按付款方式", fontWeight = FontWeight.Bold)
+        Text("By payment method", fontWeight = FontWeight.Bold)
         items.groupBy { it.method }.forEach { (label, group) -> SummaryRow(label, "$currency ${total(group, currency)}") }
-        Text("按付款账户", fontWeight = FontWeight.Bold)
+        Text("By payment account", fontWeight = FontWeight.Bold)
         items.groupBy { it.accountId }.forEach { (id, group) ->
-            SummaryRow(accounts.find { it.id == id }?.label() ?: "未指定账户", "$currency ${total(group, currency)}")
+            SummaryRow(accounts.find { it.id == id }?.label() ?: "Unspecified account", "$currency ${total(group, currency)}")
         }
     }
 }
 
 @Composable
 private fun ColumnScope.Editor(model: ExpenseViewModel, expense: Expense, expenses: List<Expense>, accounts: List<PaymentAccount>, busy: Boolean) {
+    val quickSave by model.quickSave.collectAsStateWithLifecycle()
     var reviewed by rememberSaveable(expense.id) { mutableStateOf(false) }
     var duplicateAccepted by rememberSaveable(expense.id) { mutableStateOf(false) }
     var deleteDialog by remember { mutableStateOf(false) }
     val duplicate = expenses.any { expense.receiptHash != null && it.id != expense.id && it.receiptHash == expense.receiptHash }
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-        TextButton(onClick = model::close, enabled = !busy) { Text("返回") }
-        Text(if (expense.status == "DRAFT") "核对费用草稿" else "编辑费用", fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
-        TextButton(onClick = { deleteDialog = true }, enabled = !busy) { Text("删除") }
+        TextButton(onClick = model::close, enabled = !busy) { Text("Back") }
+        Text(if (expense.status == "DRAFT") "Review expense draft" else "Edit expense", fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+        TextButton(onClick = { deleteDialog = true }, enabled = !busy) { Text("Delete") }
     }
-    if (busy) { LinearProgressIndicator(Modifier.fillMaxWidth()); Text("正在处理收据，请稍候…") }
+    if (busy) { LinearProgressIndicator(Modifier.fillMaxWidth()); Text("Processing receipt. Please wait…") }
     Column(Modifier.weight(1f).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         if (expense.receiptPath != null) ReceiptPreview(model, expense)
         if (expense.warnings.isNotBlank()) Notice(expense.warnings)
         if (duplicate) {
-            Notice("这份凭证已导入过。请在首页／记录中核对已有记录，避免重复记账。")
-            Check("已核对，仍要保留这笔记录", duplicateAccepted, { duplicateAccepted = it }, !busy)
+            Notice("This receipt was imported before. Check the existing record in Home or Records to avoid a duplicate.")
+            Check("I checked the existing record and want to save this one too", duplicateAccepted, { duplicateAccepted = it }, !busy)
         }
-        Field(expense.amountInput, "金额（必填）", { value -> model.edit { it.copy(amountInput = value) } }, !busy, KeyboardType.Decimal)
+        Field(expense.amountInput, "Amount (required)", { value -> model.edit { it.copy(amountInput = value) } }, !busy, KeyboardType.Decimal)
         if (expense.candidates.isNotBlank()) {
-            Text("收据中的金额（可能含余额／优惠）：${expense.candidates.replace("|", "、")}", style = MaterialTheme.typography.bodySmall)
+            Text("Amounts on receipt (may include balance / discounts): ${expense.candidates.replace("|", ", ")}", style = MaterialTheme.typography.bodySmall)
         }
-        Choice("币种", currencies, expense.currency, { value -> model.edit { it.copy(currency = value) } }, !busy)
-        Field(expense.date, "交易日期 YYYY-MM-DD（必填）", { value -> model.edit { it.copy(date = value) } }, !busy)
-        Choice("分类", categories, expense.category, { value -> model.edit { it.copy(category = value) } }, !busy)
-        Field(expense.merchant, "商家", { value -> model.edit { it.copy(merchant = value) } }, !busy)
-        Choice("付款方式", paymentMethods, expense.method, { value -> model.edit { it.copy(method = value, accountId = null) } }, !busy)
+        Choice("Currency", currencies, expense.currency, { value -> model.edit { it.copy(currency = value) } }, !busy)
+        Field(expense.date, "Transaction date YYYY-MM-DD (required)", { value -> model.edit { it.copy(date = value) } }, !busy)
+        Field(expense.transactionTime, "Transaction time HH:mm:ss (optional)", { value -> model.edit { it.copy(transactionTime = value) } }, !busy)
+        Choice("Category", categories, expense.category, { value -> model.edit { it.copy(category = value) } }, !busy)
+        Field(expense.merchant, "Merchant", { value -> model.edit { it.copy(merchant = value) } }, !busy)
+        Field(expense.receiptNo, "Receipt / Invoice No. (optional)", { value -> model.edit { it.copy(receiptNo = value) } }, !busy)
+        Choice("Payment method", paymentMethods, expense.method, { value -> model.edit { it.copy(method = value, accountId = null) } }, !busy)
         val choices = accounts.filter { it.method == expense.method && (it.active || it.id == expense.accountId) }
-        Choice("付款账户", listOf("" to "暂未指定") + choices.map { it.id to (it.label() + if (it.active) "" else "（已停用）") }, expense.accountId.orEmpty(),
+        Choice("Payment account", listOf("" to "Not selected") + choices.map { it.id to (it.label() + if (it.active) "" else " (inactive)") }, expense.accountId.orEmpty(),
             { value -> model.edit { it.copy(accountId = value.ifEmpty { null }) } }, !busy)
-        Field(expense.note, "备注", { value -> model.edit { it.copy(note = value) } }, !busy)
-        Text("来源：${expense.source}", style = MaterialTheme.typography.bodySmall)
+        Field(expense.note, "Notes", { value -> model.edit { it.copy(note = value) } }, !busy)
+        Text("Source: ${expense.source}", style = MaterialTheme.typography.bodySmall)
         if (expense.rawText.isNotBlank()) {
-            SectionTitle("原始／识别文字")
+            SectionTitle("Original / recognized text")
             Text(expense.rawText, style = MaterialTheme.typography.bodySmall)
         }
-        if (expense.source != "手动") Check("我已核对金额、币种、日期和账户，确认这是已完成的消费支出（非充值、转账、还款或退款）。", reviewed, { reviewed = it }, !busy)
-        if (expense.status == "DRAFT") Text("填写内容自动保留为草稿，保存后才计入统计。", style = MaterialTheme.typography.bodySmall)
-        Button(onClick = { model.save(reviewed, duplicateAccepted) }, enabled = !busy, modifier = Modifier.fillMaxWidth()) { Text("确认并保存费用") }
+        if (expense.source != "Manual" && !quickSave) Check("I checked the amount, currency, date and account. This is a completed purchase, not a top-up, transfer, repayment or refund.", reviewed, { reviewed = it }, !busy)
+        if (expense.status == "DRAFT") Text("Changes are kept as a draft. Only saved expenses appear in statistics.", style = MaterialTheme.typography.bodySmall)
+        Button(onClick = { model.save(reviewed, duplicateAccepted) }, enabled = !busy, modifier = Modifier.fillMaxWidth()) { Text("Save expense") }
         Spacer(Modifier.height(20.dp))
     }
-    if (deleteDialog) AlertDialog(onDismissRequest = { deleteDialog = false }, title = { Text("删除这笔记录？") },
-        text = { Text("记录及其原始凭证将从本机删除。") }, confirmButton = {
-            TextButton(onClick = { deleteDialog = false; model.delete(expense) }) { Text("删除") }
-        }, dismissButton = { TextButton(onClick = { deleteDialog = false }) { Text("取消") } })
+    if (deleteDialog) AlertDialog(onDismissRequest = { deleteDialog = false }, title = { Text("Delete this expense?") },
+        text = { Text("The expense and its original receipt will be removed from this device.") }, confirmButton = {
+            TextButton(onClick = { deleteDialog = false; model.delete(expense) }) { Text("Delete") }
+        }, dismissButton = { TextButton(onClick = { deleteDialog = false }) { Text("Cancel") } })
 }
 
 @Composable
@@ -211,16 +217,34 @@ private fun ReceiptPreview(model: ExpenseViewModel, expense: Expense) {
     val bitmap by produceState<Bitmap?>(null, expense.receiptPath) {
         value = model.importer.preview(expense.receiptPath!!, expense.mimeType.orEmpty())
     }
-    Text(if (expense.mimeType == "application/pdf") "原始凭证 · PDF 首页预览" else "原始凭证", fontWeight = FontWeight.Bold)
-    bitmap?.let { Image(it.asImageBitmap(), "收据预览", Modifier.fillMaxWidth().heightIn(max = 360.dp), contentScale = ContentScale.Fit) }
-    if (bitmap == null) Text("预览无法显示或正在载入，仍可核对下方文字及手动填写。", style = MaterialTheme.typography.bodySmall)
+    Text(if (expense.mimeType == "application/pdf") "Original receipt · PDF first page" else "Original receipt", fontWeight = FontWeight.Bold)
+    bitmap?.let { Image(it.asImageBitmap(), "Receipt preview", Modifier.fillMaxWidth().heightIn(max = 360.dp), contentScale = ContentScale.Fit) }
+    if (bitmap == null) Text("Preview is loading or unavailable. Use the receipt text below or enter the details manually.", style = MaterialTheme.typography.bodySmall)
+}
+
+@Composable
+private fun Settings(model: ExpenseViewModel) {
+    val quickSave by model.quickSave.collectAsStateWithLifecycle()
+    SectionTitle("Import options")
+    Card(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("Quick save imported receipts", modifier = Modifier.weight(1f), fontWeight = FontWeight.Bold)
+                Switch(checked = quickSave, onCheckedChange = model::setQuickSave, modifier = Modifier.semantics { contentDescription = "Quick save imported receipts" })
+            }
+            Text("When enabled, receipts with a clear amount, currency and transaction date are saved automatically. Missing or ambiguous details, duplicates and payment-status warnings keep the receipt as a draft.")
+            Text("When disabled, review each imported receipt before saving. You can change this option at any time.")
+            Text("Merchant, category and payment account may remain unspecified. Open a saved expense in Records to update them.", style = MaterialTheme.typography.bodySmall)
+        }
+    }
+    Text("Receipt and invoice numbers, and transaction times, are optional. They help you distinguish similar expenses without slowing down entry.")
 }
 
 @Composable
 private fun Accounts(accounts: List<PaymentAccount>, model: ExpenseViewModel) {
     val savingAccount by model.savingAccount.collectAsStateWithLifecycle()
     val addedAccount by model.addedAccount.collectAsStateWithLifecycle()
-    var method by rememberSaveable { mutableStateOf("电子钱包") }
+    var method by rememberSaveable { mutableStateOf("E-wallet") }
     var provider by rememberSaveable { mutableStateOf("") }
     var nickname by rememberSaveable { mutableStateOf("") }
     var lastFour by rememberSaveable { mutableStateOf("") }
@@ -228,50 +252,50 @@ private fun Accounts(accounts: List<PaymentAccount>, model: ExpenseViewModel) {
     var editProvider by rememberSaveable { mutableStateOf("") }
     var editName by rememberSaveable { mutableStateOf("") }
     var editLastFour by rememberSaveable { mutableStateOf("") }
-    SectionTitle("付款账户")
-    Text("记录钱包品牌、发卡银行及昵称。卡片只填末四位。", style = MaterialTheme.typography.bodySmall)
+    SectionTitle("Payment account")
+    Text("Keep wallet providers, issuing banks and account nicknames. For cards, enter only the last four digits.", style = MaterialTheme.typography.bodySmall)
     accounts.forEach { account ->
         Card(Modifier.fillMaxWidth()) {
             Column(Modifier.padding(14.dp)) {
                 Text(account.label(), fontWeight = FontWeight.Bold)
-                Text(account.method + if (account.active) "" else " · 已停用")
+                Text(account.method + if (account.active) "" else " · Inactive")
                 Row {
                     TextButton(onClick = {
                         editingId = account.id
                         editProvider = account.provider
                         editName = account.nickname
                         editLastFour = account.lastFour
-                    }, enabled = !savingAccount) { Text("编辑") }
-                    TextButton(onClick = { model.updateAccount(account.copy(active = !account.active)) }, enabled = !savingAccount) { Text(if (account.active) "停用" else "启用") }
+                    }, enabled = !savingAccount) { Text("Edit") }
+                    TextButton(onClick = { model.updateAccount(account.copy(active = !account.active)) }, enabled = !savingAccount) { Text(if (account.active) "Deactivate" else "Activate") }
                 }
             }
         }
     }
-    SectionTitle("新增账户")
-    Choice("付款方式", paymentMethods.filter { it != "未指定" }, method, { method = it })
-    Field(provider, "品牌／银行，例如 TNG eWallet、CIMB", { provider = it })
-    Field(nickname, "昵称，例如个人、日常消费", { nickname = it })
-    if (method in listOf("信用卡", "借记卡", "预付／储值卡")) Field(lastFour, "卡片末四位（可选）", { lastFour = it.take(4) }, keyboardType = KeyboardType.Number)
+    SectionTitle("Add account")
+    Choice("Payment method", paymentMethods.filter { it != "Unspecified" }, method, { method = it })
+    Field(provider, "Provider / bank, e.g. TNG eWallet or CIMB", { provider = it })
+    Field(nickname, "Nickname, e.g. Personal or Everyday", { nickname = it })
+    if (method in listOf("Credit card", "Debit card", "Prepaid card")) Field(lastFour, "Card last four (optional)", { lastFour = it.take(4) }, keyboardType = KeyboardType.Number)
     Button(onClick = {
-        model.addAccount(method, provider, nickname, if (method in listOf("信用卡", "借记卡", "预付／储值卡")) lastFour else "")
-    }, enabled = !savingAccount && addedAccount == null) { Text(if (savingAccount) "正在保存…" else "新增付款账户") }
-    Text("停用账户会保留历史记录关联。卸载 App 会删除本机资料；CSV 仅供分析，完整备份恢复尚未提供。", style = MaterialTheme.typography.bodySmall)
+        model.addAccount(method, provider, nickname, if (method in listOf("Credit card", "Debit card", "Prepaid card")) lastFour else "")
+    }, enabled = !savingAccount && addedAccount == null) { Text(if (savingAccount) "Saving…" else "Add payment account") }
+    Text("Deactivated accounts remain linked to past expenses. Uninstalling removes local data. CSV is for analysis; full backup and restore are not available yet.", style = MaterialTheme.typography.bodySmall)
     accounts.find { it.id == editingId }?.let { account ->
-        val isCard = account.method in listOf("信用卡", "借记卡", "预付／储值卡")
+        val isCard = account.method in listOf("Credit card", "Debit card", "Prepaid card")
         val error = when {
-            editProvider.isBlank() || editName.isBlank() -> "请填写品牌／银行与账户昵称。"
-            isCard && editLastFour.isNotBlank() && !Regex("\\d{4}").matches(editLastFour) -> "卡片末四位必须是 4 个数字，或留空。"
+            editProvider.isBlank() || editName.isBlank() -> "Enter a provider or bank and an account nickname."
+            isCard && editLastFour.isNotBlank() && !Regex("\\d{4}").matches(editLastFour) -> "Enter exactly four digits, or leave this field empty."
             else -> null
         }
         AlertDialog(
             onDismissRequest = { if (!savingAccount) editingId = null },
-            title = { Text("编辑付款账户") },
+            title = { Text("Edit payment account") },
             text = {
                 Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text("付款方式：${account.method}")
-                    Field(editProvider, "品牌／银行", { editProvider = it }, !savingAccount)
-                    Field(editName, "账户昵称", { editName = it }, !savingAccount)
-                    if (isCard) Field(editLastFour, "卡片末四位（可选）", { editLastFour = it.take(4) }, !savingAccount, KeyboardType.Number)
+                    Text("Payment method: ${account.method}")
+                    Field(editProvider, "Provider / bank", { editProvider = it }, !savingAccount)
+                    Field(editName, "Account nickname", { editName = it }, !savingAccount)
+                    if (isCard) Field(editLastFour, "Card last four (optional)", { editLastFour = it.take(4) }, !savingAccount, KeyboardType.Number)
                     error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
                 }
             },
@@ -279,9 +303,9 @@ private fun Accounts(accounts: List<PaymentAccount>, model: ExpenseViewModel) {
                 TextButton(onClick = {
                     model.updateAccount(account.copy(provider = editProvider, nickname = editName,
                         lastFour = if (isCard) editLastFour else "")) { editingId = null }
-                }, enabled = !savingAccount && error == null) { Text(if (savingAccount) "正在保存…" else "保存") }
+                }, enabled = !savingAccount && error == null) { Text(if (savingAccount) "Saving…" else "Save") }
             },
-            dismissButton = { TextButton(onClick = { editingId = null }, enabled = !savingAccount) { Text("取消") } }
+            dismissButton = { TextButton(onClick = { editingId = null }, enabled = !savingAccount) { Text("Cancel") } }
         )
     }
 }
@@ -292,9 +316,10 @@ private fun ExpenseRow(expense: Expense, accounts: List<PaymentAccount>, open: (
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
             Row(Modifier.fillMaxWidth()) {
                 Text(expense.merchant.ifBlank { expense.category }, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
-                Text("${expense.currency} ${expense.amountMinor?.let { Money.display(it, expense.currency) } ?: expense.amountInput.ifBlank { "待核对" }}", fontWeight = FontWeight.Bold)
+                Text("${expense.currency} ${expense.amountMinor?.let { Money.display(it, expense.currency) } ?: expense.amountInput.ifBlank { "Needs review" }}", fontWeight = FontWeight.Bold)
             }
-            Text("${expense.date.ifBlank { "日期待核对" }} · ${expense.category}${if (expense.status == "DRAFT") " · 草稿" else ""}", style = MaterialTheme.typography.bodySmall)
+            if (expense.receiptNo.isNotBlank()) Text("Receipt: ${expense.receiptNo}", style = MaterialTheme.typography.bodySmall)
+            Text("${expense.date.ifBlank { "Date needed" }} ${expense.transactionTime} · ${expense.category}${if (expense.status == "DRAFT") " · Draft" else ""}", style = MaterialTheme.typography.bodySmall)
             Text(accounts.find { it.id == expense.accountId }?.label() ?: expense.method, style = MaterialTheme.typography.bodySmall)
         }
     }
@@ -328,7 +353,7 @@ private fun ExpenseRow(expense: Expense, accounts: List<PaymentAccount>, open: (
     var expanded by remember { mutableStateOf(false) }
     Box {
         OutlinedButton(onClick = { expanded = true }, enabled = enabled, modifier = Modifier.fillMaxWidth()) {
-            Text("$label：${options.find { it.first == selected }?.second ?: selected}", Modifier.weight(1f)); Text("▾")
+            Text("$label: ${options.find { it.first == selected }?.second ?: selected}", Modifier.weight(1f)); Text("▾")
         }
         DropdownMenu(expanded, { expanded = false }) { options.forEach { (id, text) ->
             DropdownMenuItem(text = { Text(text) }, onClick = { changed(id); expanded = false })

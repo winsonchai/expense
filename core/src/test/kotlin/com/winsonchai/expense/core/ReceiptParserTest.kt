@@ -25,7 +25,7 @@ class ReceiptParserTest {
     }
     @Test fun failedAndTransferReceiptsAreFlagged() {
         for (status in listOf("FAILED", "pending", "top-up", "transfer", "退款"))
-            assertTrue(ReceiptParser.parse("$status\nRM 10.00").warnings.any { it.contains("实际消费") })
+            assertTrue(ReceiptParser.parse("$status\nRM 10.00").warnings.any { it.contains("completed purchases") })
     }
     @Test fun preciseMoneyRejectsFractionsAndOverflow() {
         assertEquals(123456L, Money.minorUnits("1234.56", "MYR"))

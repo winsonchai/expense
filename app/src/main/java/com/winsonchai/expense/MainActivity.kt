@@ -24,27 +24,27 @@ class MainActivity : ComponentActivity() {
     }
     private fun accept(intent: Intent) {
         try { readSharedIntent(intent) }
-        catch (_: RuntimeException) { model.message.value = "分享资料无法读取，请重新分享图片、文字或 PDF。" }
+        catch (_: RuntimeException) { model.message.value = "Unable to read shared content. Share an image, text receipt or PDF again." }
     }
     private fun readSharedIntent(intent: Intent) {
         if (intent.action == Intent.ACTION_SEND_MULTIPLE) {
-            model.message.value = "本版每次只接收一份收据，请选择单个文件。"
+            model.message.value = "Select one receipt file at a time."
             return
         }
         if (intent.action != Intent.ACTION_SEND) return
         val mime = intent.type.orEmpty()
         val clip = intent.clipData
-        if ((clip?.itemCount ?: 0) > 1) { model.message.value = "请一次分享一份收据。"; return }
+        if ((clip?.itemCount ?: 0) > 1) { model.message.value = "Share one receipt at a time."; return }
         val stream = if (Build.VERSION.SDK_INT >= 33) intent.getParcelableExtra(Intent.EXTRA_STREAM, Uri::class.java)
             else @Suppress("DEPRECATION") (intent.getParcelableExtra<Uri>(Intent.EXTRA_STREAM))
         val uri = stream ?: clip?.getItemAt(0)?.uri
         when {
             mime.startsWith("image/") || mime == "application/pdf" -> {
-                if (uri == null) model.message.value = "没有收到收据文件，请重新分享。" else model.receive(uri = uri)
+                if (uri == null) model.message.value = "No receipt file was received. Please share it again." else model.receive(uri = uri)
             }
             mime == "text/plain" -> model.receive(text = intent.getCharSequenceExtra(Intent.EXTRA_TEXT)?.toString()
                 ?: clip?.getItemAt(0)?.text?.toString())
-            else -> model.message.value = "请选择图片、文字或 PDF 收据。"
+            else -> model.message.value = "Select an image, text receipt or PDF."
         }
     }
 }
