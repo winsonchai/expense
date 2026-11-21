@@ -148,7 +148,18 @@ class ExpenseViewModel(app: Application, private val state: SavedStateHandle) : 
         }
     }
     fun dismissAccountAdded() { state["addedAccount"] = null }
-    fun updateAccount(account: PaymentAccount) = work { dao.putAccount(account) }
+    fun updateAccount(account: PaymentAccount, onSaved: () -> Unit = {}) {
+        if (savingAccount.value) return
+        if (account.provider.isBlank() || account.nickname.isBlank()) { message.value = "请填写品牌／银行与账户昵称。"; return }
+        if (account.lastFour.isNotBlank() && !Regex("\\d{4}").matches(account.lastFour)) { message.value = "卡片末四位必须是 4 个数字。"; return }
+        savingAccount.value = true
+        work {
+            try {
+                dao.putAccount(account.copy(provider = account.provider.trim(), nickname = account.nickname.trim()))
+                onSaved()
+            } finally { savingAccount.value = false }
+        }
+    }
 
     fun exportCsv(uri: Uri) {
         val records = expenses.value.filter { it.status == "SAVED" }

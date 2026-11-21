@@ -41,6 +41,9 @@ Use synthetic receipts first. Never commit personal receipts, card details, or a
 | No URI read grant / file deleted by source | Read error; app remains usable |
 | Photo with EXIF rotation | Preview / OCR use corrected orientation |
 | Deactivated account | Hidden for new selections; historical record keeps association |
+| Edit an existing payment account | Brand/bank, nickname and card last four can be changed; saving updates the same account ID and retains expense links |
+| Edit account with blank name/bank or invalid last four | Save is disabled with a validation message; cancel discards edits; clearing optional last four is allowed |
+| Rotate while editing an account; save fails | Entered fields survive rotation; a failed write leaves the editor open for retry |
 | Add a valid payment account | After the database write completes, an “已新增账户” dialog names the saved account; “确定” dismisses it |
 | Invalid account or failed account write | Validation/error message appears; no success dialog is shown |
 | Tap add repeatedly while saving; rotate with success dialog open | One account is created per submission; success dialog survives rotation and stays dismissed after confirmation |

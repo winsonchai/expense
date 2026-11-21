@@ -224,8 +224,10 @@ private fun Accounts(accounts: List<PaymentAccount>, model: ExpenseViewModel) {
     var provider by rememberSaveable { mutableStateOf("") }
     var nickname by rememberSaveable { mutableStateOf("") }
     var lastFour by rememberSaveable { mutableStateOf("") }
-    var renaming by remember { mutableStateOf<PaymentAccount?>(null) }
-    var newName by remember { mutableStateOf("") }
+    var editingId by rememberSaveable { mutableStateOf<String?>(null) }
+    var editProvider by rememberSaveable { mutableStateOf("") }
+    var editName by rememberSaveable { mutableStateOf("") }
+    var editLastFour by rememberSaveable { mutableStateOf("") }
     SectionTitle("付款账户")
     Text("记录钱包品牌、发卡银行及昵称。卡片只填末四位。", style = MaterialTheme.typography.bodySmall)
     accounts.forEach { account ->
@@ -234,8 +236,13 @@ private fun Accounts(accounts: List<PaymentAccount>, model: ExpenseViewModel) {
                 Text(account.label(), fontWeight = FontWeight.Bold)
                 Text(account.method + if (account.active) "" else " · 已停用")
                 Row {
-                    TextButton(onClick = { renaming = account; newName = account.nickname }) { Text("改名") }
-                    TextButton(onClick = { model.updateAccount(account.copy(active = !account.active)) }) { Text(if (account.active) "停用" else "启用") }
+                    TextButton(onClick = {
+                        editingId = account.id
+                        editProvider = account.provider
+                        editName = account.nickname
+                        editLastFour = account.lastFour
+                    }, enabled = !savingAccount) { Text("编辑") }
+                    TextButton(onClick = { model.updateAccount(account.copy(active = !account.active)) }, enabled = !savingAccount) { Text(if (account.active) "停用" else "启用") }
                 }
             }
         }
@@ -249,10 +256,34 @@ private fun Accounts(accounts: List<PaymentAccount>, model: ExpenseViewModel) {
         model.addAccount(method, provider, nickname, if (method in listOf("信用卡", "借记卡", "预付／储值卡")) lastFour else "")
     }, enabled = !savingAccount && addedAccount == null) { Text(if (savingAccount) "正在保存…" else "新增付款账户") }
     Text("停用账户会保留历史记录关联。卸载 App 会删除本机资料；CSV 仅供分析，完整备份恢复尚未提供。", style = MaterialTheme.typography.bodySmall)
-    if (renaming != null) AlertDialog(onDismissRequest = { renaming = null }, title = { Text("修改账户昵称") },
-        text = { Field(newName, "账户昵称", { newName = it }) }, confirmButton = {
-            TextButton(onClick = { if (newName.isNotBlank()) { model.updateAccount(renaming!!.copy(nickname = newName.trim())); renaming = null } }) { Text("保存") }
-        }, dismissButton = { TextButton(onClick = { renaming = null }) { Text("取消") } })
+    accounts.find { it.id == editingId }?.let { account ->
+        val isCard = account.method in listOf("信用卡", "借记卡", "预付／储值卡")
+        val error = when {
+            editProvider.isBlank() || editName.isBlank() -> "请填写品牌／银行与账户昵称。"
+            isCard && editLastFour.isNotBlank() && !Regex("\\d{4}").matches(editLastFour) -> "卡片末四位必须是 4 个数字，或留空。"
+            else -> null
+        }
+        AlertDialog(
+            onDismissRequest = { if (!savingAccount) editingId = null },
+            title = { Text("编辑付款账户") },
+            text = {
+                Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text("付款方式：${account.method}")
+                    Field(editProvider, "品牌／银行", { editProvider = it }, !savingAccount)
+                    Field(editName, "账户昵称", { editName = it }, !savingAccount)
+                    if (isCard) Field(editLastFour, "卡片末四位（可选）", { editLastFour = it.take(4) }, !savingAccount, KeyboardType.Number)
+                    error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    model.updateAccount(account.copy(provider = editProvider, nickname = editName,
+                        lastFour = if (isCard) editLastFour else "")) { editingId = null }
+                }, enabled = !savingAccount && error == null) { Text(if (savingAccount) "正在保存…" else "保存") }
+            },
+            dismissButton = { TextButton(onClick = { editingId = null }, enabled = !savingAccount) { Text("取消") } }
+        )
+    }
 }
 
 @Composable
