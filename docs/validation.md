@@ -41,6 +41,9 @@ Use synthetic receipts first. Never commit personal receipts, card details, or a
 | No URI read grant / file deleted by source | Read error; app remains usable |
 | Photo with EXIF rotation | Preview / OCR use corrected orientation |
 | Deactivated account | Hidden for new selections; historical record keeps association |
+| Add a valid payment account | After the database write completes, an “账户新增成功” dialog names the saved account; “确定” dismisses it |
+| Invalid account or failed account write | Validation/error message appears; no success dialog is shown |
+| Tap add repeatedly while saving; rotate with success dialog open | One account is created per submission; success dialog survives rotation and stays dismissed after confirmation |
 | Edit / delete saved record | Summary updates; delete confirmation precedes removing local receipt |
 | MYR + USD in same month | Separate totals; no cross-currency addition |
 | Export CSV, including formula-like merchant | Confirmed expenses only; quoted fields; formulas neutralized |

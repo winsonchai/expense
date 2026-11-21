@@ -37,6 +37,7 @@ fun ExpenseApp(model: ExpenseViewModel) {
     val editor by model.editor.collectAsStateWithLifecycle()
     val busy by model.busy.collectAsStateWithLifecycle()
     val message by model.message.collectAsStateWithLifecycle()
+    val addedAccount by model.addedAccount.collectAsStateWithLifecycle()
     var tab by rememberSaveable { mutableIntStateOf(0) }
     val snackbar = remember { SnackbarHostState() }
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> uri?.let { model.receive(uri = it) } }
@@ -44,6 +45,12 @@ fun ExpenseApp(model: ExpenseViewModel) {
     LaunchedEffect(message) { message?.let { snackbar.showSnackbar(it); if (model.message.value == it) model.message.value = null } }
     BackHandler(editor != null) { model.close() }
     MaterialTheme(colorScheme = lightColorScheme(primary = Teal, secondary = Color(0xFF496563), background = Color(0xFFF7F8FA))) {
+        if (addedAccount != null) AlertDialog(
+            onDismissRequest = model::dismissAccountAdded,
+            title = { Text("账户新增成功") },
+            text = { Text("付款账户「$addedAccount」已成功保存。") },
+            confirmButton = { TextButton(onClick = model::dismissAccountAdded) { Text("确定") } }
+        )
         Scaffold(
             snackbarHost = { SnackbarHost(snackbar) },
             bottomBar = {
@@ -211,6 +218,8 @@ private fun ReceiptPreview(model: ExpenseViewModel, expense: Expense) {
 
 @Composable
 private fun Accounts(accounts: List<PaymentAccount>, model: ExpenseViewModel) {
+    val savingAccount by model.savingAccount.collectAsStateWithLifecycle()
+    val addedAccount by model.addedAccount.collectAsStateWithLifecycle()
     var method by rememberSaveable { mutableStateOf("电子钱包") }
     var provider by rememberSaveable { mutableStateOf("") }
     var nickname by rememberSaveable { mutableStateOf("") }
@@ -238,7 +247,7 @@ private fun Accounts(accounts: List<PaymentAccount>, model: ExpenseViewModel) {
     if (method in listOf("信用卡", "借记卡", "预付／储值卡")) Field(lastFour, "卡片末四位（可选）", { lastFour = it.take(4) }, keyboardType = KeyboardType.Number)
     Button(onClick = {
         model.addAccount(method, provider, nickname, if (method in listOf("信用卡", "借记卡", "预付／储值卡")) lastFour else "")
-    }) { Text("新增付款账户") }
+    }, enabled = !savingAccount && addedAccount == null) { Text(if (savingAccount) "正在保存…" else "新增付款账户") }
     Text("停用账户会保留历史记录关联。卸载 App 会删除本机资料；CSV 仅供分析，完整备份恢复尚未提供。", style = MaterialTheme.typography.bodySmall)
     if (renaming != null) AlertDialog(onDismissRequest = { renaming = null }, title = { Text("修改账户昵称") },
         text = { Field(newName, "账户昵称", { newName = it }) }, confirmButton = {

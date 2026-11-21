@@ -24,6 +24,8 @@ class ExpenseViewModel(app: Application, private val state: SavedStateHandle) : 
     val editor = MutableStateFlow<Expense?>(null)
     val busy = MutableStateFlow(false)
     val message = MutableStateFlow<String?>(null)
+    val savingAccount = MutableStateFlow(false)
+    val addedAccount = state.getStateFlow<String?>("addedAccount", null)
     val importer = ReceiptImporter(app)
     private val writes = Mutex()
 
@@ -133,10 +135,19 @@ class ExpenseViewModel(app: Application, private val state: SavedStateHandle) : 
     }
 
     fun addAccount(method: String, provider: String, nickname: String, lastFour: String) {
+        if (savingAccount.value || addedAccount.value != null) return
         if (provider.isBlank() || nickname.isBlank()) { message.value = "请填写品牌／银行与账户昵称。"; return }
         if (lastFour.isNotBlank() && !Regex("\\d{4}").matches(lastFour)) { message.value = "卡片末四位必须是 4 个数字。"; return }
-        work { dao.putAccount(PaymentAccount(method = method, provider = provider.trim(), nickname = nickname.trim(), lastFour = lastFour)) }
+        val account = PaymentAccount(method = method, provider = provider.trim(), nickname = nickname.trim(), lastFour = lastFour)
+        savingAccount.value = true
+        work {
+            try {
+                dao.putAccount(account)
+                state["addedAccount"] = account.label()
+            } finally { savingAccount.value = false }
+        }
     }
+    fun dismissAccountAdded() { state["addedAccount"] = null }
     fun updateAccount(account: PaymentAccount) = work { dao.putAccount(account) }
 
     fun exportCsv(uri: Uri) {
