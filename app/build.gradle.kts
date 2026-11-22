@@ -13,8 +13,8 @@ android {
         applicationId = "com.winsonchai.expense"
         minSdk = 26
         targetSdk = 35
-        versionCode = 4
-        versionName = "0.4.0"
+        versionCode = 5
+        versionName = "0.5.0"
         manifestPlaceholders["appLabel"] = "Expense"
     }
     signingConfigs {
@@ -34,6 +34,13 @@ android {
             versionNameSuffix = "-preview"
             matchingFallbacks += listOf("debug")
             manifestPlaceholders["appLabel"] = "Expense Preview"
+        }
+        create("tapPreview") {
+            initWith(getByName("preview"))
+            // The distributed 0.4 APK used a different CI key. Keep it and its data installed.
+            applicationIdSuffix = ".preview.tap"
+            versionNameSuffix = "-tap-preview"
+            manifestPlaceholders["appLabel"] = "Expense Tap Preview"
         }
     }
     buildFeatures { compose = true }

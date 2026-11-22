@@ -144,7 +144,7 @@ private fun Home(expenses: List<Expense>, accounts: List<PaymentAccount>, open: 
         OutlinedButton(onClick = import, modifier = Modifier.weight(1f)) { Text("Import receipt") }
     }
     OutlinedButton(onClick = scan, modifier = Modifier.fillMaxWidth()) { Text("Scan receipt") }
-    Text("Take a photo, then tap the detected amount, receipt number or date to fill the form.", style = MaterialTheme.typography.bodySmall)
+    Text("Take a photo and tap its text. Check or change the suggested field type and value, then confirm to fill the form.", style = MaterialTheme.typography.bodySmall)
     Text("After paying, share the receipt from your wallet to Expense. Review and save, or enable Quick save in Settings.", style = MaterialTheme.typography.bodyMedium)
     val drafts = expenses.filter { it.status == "DRAFT" }
     if (drafts.isNotEmpty()) {
@@ -202,7 +202,6 @@ private fun ColumnScope.Editor(model: ExpenseViewModel, expense: Expense, expens
     var reviewed by rememberSaveable(expense.id) { mutableStateOf(false) }
     var duplicateAccepted by rememberSaveable(expense.id) { mutableStateOf(false) }
     var deleteDialog by remember { mutableStateOf(false) }
-    var selecting by rememberSaveable(expense.id) { mutableStateOf(expense.source == "Camera" && expense.status == "DRAFT") }
     val duplicate = expenses.any { expense.receiptHash != null && it.id != expense.id && it.receiptHash == expense.receiptHash }
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         TextButton(onClick = model::close, enabled = !busy) { Text("Back") }
@@ -211,9 +210,9 @@ private fun ColumnScope.Editor(model: ExpenseViewModel, expense: Expense, expens
     }
     if (busy) { LinearProgressIndicator(Modifier.fillMaxWidth()); Text("Processing receipt. Please wait…") }
     Column(Modifier.weight(1f).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        if (expense.receiptPath != null) ReceiptPreview(model, expense)
-        if (expense.receiptPath != null && expense.mimeType?.startsWith("image/") == true) {
-            OutlinedButton(onClick = { selecting = true }, enabled = !busy, modifier = Modifier.fillMaxWidth()) { Text("Tap receipt to fill fields") }
+        if (expense.receiptPath != null) {
+            if (expense.mimeType?.startsWith("image/") == true) ReceiptPhotoSection(model, expense, busy)
+            else ReceiptPreview(model, expense)
         }
         if (expense.warnings.isNotBlank()) Notice(expense.warnings)
         if (duplicate) {
@@ -244,9 +243,6 @@ private fun ColumnScope.Editor(model: ExpenseViewModel, expense: Expense, expens
         if (expense.status == "DRAFT") Text("Changes are kept as a draft. Only saved expenses appear in statistics.", style = MaterialTheme.typography.bodySmall)
         Button(onClick = { model.save(reviewed, duplicateAccepted) }, enabled = !busy, modifier = Modifier.fillMaxWidth()) { Text("Save expense") }
         Spacer(Modifier.height(20.dp))
-    }
-    if (selecting && !busy && expense.receiptPath != null && expense.mimeType?.startsWith("image/") == true) {
-        ReceiptSelectionDialog(model, expense, onDismiss = { selecting = false })
     }
     if (deleteDialog) AlertDialog(onDismissRequest = { deleteDialog = false }, title = { Text("Delete this expense?") },
         text = { Text("The expense and its original receipt will be removed from this device.") }, confirmButton = {

@@ -1,5 +1,26 @@
 # Validation and acceptance
 
+## Version 0.5.0 tap confirmation
+
+Core tests cover label-based classification, references with leading zeroes or decimal-like identifiers, unknown text, manual type overrides, invalid values and custom-field note retention. All 19 core tests and 3 existing database upgrade tests passed locally. The preview APK build, Android lint and packaged permission check passed. No device UI test has been performed.
+
+Signature inspection found that the distributed 0.4 APK uses a different certificate from the retained 0.3 preview key. The supplied Tap Preview therefore uses the distinct `com.winsonchai.expense.preview.tap` package and `Expense Tap Preview` label, preserving the old installation and its data. It does not import that data.
+
+Tap Preview build and lint passed locally on 2026-11-22 with no lint errors. APK signature verification confirms the retained test key; package, label and version 5 / 0.5.0-tap-preview were checked. The packaged permission check passes with only ACCESS_NETWORK_STATE and the app-private AndroidX receiver permission. Core tests: 19 passed; database upgrade tests: 3 passed. Phone installation and UI acceptance remain unverified.
+
+Device acceptance remains pending:
+
+- Tap a box directly on the inline photo, and in the enlarged camera/photo screen. Both open the type/value editor without changing the expense.
+- Suggested Amount `28.50`: change type to Receipt No. and confirm; only receiptNo changes. Repeat with a corrected amount and check only amountInput changes. Cancel/back/outside dismissals leave existing values untouched.
+- Change to Other, enter `Table number` and `07`, and confirm. Existing notes remain and `Table number: 07` appears in Notes and exports with the record.
+- Select a valid date/time, a multi-word merchant using detected-text line buttons, or a reference with leading zeroes; verify the correct destination and exact normalized value.
+- Invalid amount/date/time and missing custom label/value disable confirmation. Correcting either type or value enables it when valid.
+- Tap an image area without OCR text, or Enter a field manually after recognition failure, and enter a value and type without requiring OCR success.
+- Rotate with a pending selection: selected text, edited value, type and custom label remain; no form change happens until confirmation. Closing/reopening a selection starts fresh.
+- Portrait, landscape, EXIF-rotated and letterboxed images retain matching hit boxes. Small boxes have accessible detected-text buttons.
+- Confirm multiple fields, Done, save, close and reopen the expense. Confirmed fields persist, summaries and CSV remain correct, and no duplicate saved expense appears.
+- Install Tap Preview alongside 0.4; verify both launch independently and old records remain in the old application. Future Tap Preview updates signed with the retained key must preserve Tap Preview's own records.
+
 ## Version 0.4.0 photo selection
 
 Automated checks and device acceptance are separate. New core tests check selected amounts (thousands separators, precision, negatives, overflow and ambiguous values), selected dates/references and preview letterboxing coordinates.

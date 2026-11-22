@@ -16,13 +16,23 @@ Built with Kotlin, Jetpack Compose, Room and bundled on-device ML Kit OCR.
 
 The app requests no Internet, SMS, notification access, accessibility, screen capture, camera or broad storage permissions. OCR models are bundled. Original receipts and the Room database stay in app-private storage. Android automatic backup is disabled for this prototype.
 
+## Version 0.5.0 — tap, classify, edit and confirm
+
+- Tap text directly on the receipt in the expense form or enlarged photo. A confirmation window suggests Amount, Receipt No., Date, Time, Merchant or Other from the selected text and its receipt line.
+- Change the field type and edit the recognized value before pressing **Confirm**. Cancel discards the selection without changing the form. Confirmation fills only the chosen field; **Save expense** still saves the expense.
+- **Other** asks what the data represents and appends `label: value` to Notes, retaining existing notes. A missed text box or **Enter a field manually** opens the same editor for manual entry.
+- **Enlarge photo / detected text** provides a larger photo and accessible word/line buttons for small or multi-word text. OCR and photo coordinates share the same upright image.
+- Suggestions are local rules and can be wrong. Invalid amounts, dates and times cannot replace form values; references retain leading zeroes. No database migration is needed.
+- The supplied **Expense Tap Preview** uses `com.winsonchai.expense.preview.tap` and installs alongside 0.4. The distributed 0.4 APK's certificate differs from the retained preview key, so an update with that key is unavailable. Keep the old app to retain its records; this separate test app starts with its own data. Future local Tap Preview builds can use the same retained test key.
+- Build this separate test app with `EXPENSE_PREVIEW_KEYSTORE` set to the retained private test key and `./gradlew :core:test :app:assembleTapPreview :app:lintTapPreview`.
+
 ## Version 0.4.0 — photo and tap to fill
 
 - **Home → Scan receipt** opens the phone's camera to capture a full-resolution still photo. Confirm the photo to freeze it and open the field selection screen.
 - Choose **Amount**, **Receipt No.** or **Date**, then tap a recognized word box to fill that field. The selected field stays editable. Use **Show detected text** for larger text buttons when boxes are too small.
 - **Done · Review expense** returns to the existing expense form; select currency and account, check the details, then **Save expense**. Camera receipts stay drafts even when Quick save is enabled.
 - The same **Tap receipt to fill fields** action is available for imported image receipts. PDF/text intake keeps its existing review flow.
-- This first version scans a frozen photo. Live video overlays, automatic receipt cropping and automatic classification of each text box are not included.
+- This version introduced frozen-photo scanning. Version 0.5 adds field suggestions; live video overlays and automatic receipt cropping remain outside this flow.
 - The system camera receives temporary access to one private cache file through a non-exported FileProvider. Expense adds no camera, microphone or storage permissions. Temporary captures are removed after intake/cancellation; abandoned captures older than a day are cleared on the next camera launch.
 
 ## Version 0.3.0

@@ -25,7 +25,7 @@ const val MAX_RECEIPT_BYTES = 20L * 1024 * 1024
 const val MAX_TEXT_CHARS = 100_000
 
 data class ImportedReceipt(val path: String?, val mime: String, val hash: String, val text: String)
-data class ReceiptWord(val text: String, val bounds: Rect)
+data class ReceiptWord(val text: String, val bounds: Rect, val context: String = text)
 data class SelectableReceipt(val bitmap: Bitmap, val words: List<ReceiptWord>)
 
 class ReceiptImporter(private val context: Context) {
@@ -38,9 +38,15 @@ class ReceiptImporter(private val context: Context) {
             val input = InputImage.fromBitmap(bitmap, 0)
             val results = listOf(latin.process(input).await(), chinese.process(input).await())
             val words = results.flatMap { result -> result.textBlocks.flatMap { block ->
-                block.lines.flatMap { line -> line.elements.mapNotNull { element ->
-                    element.boundingBox?.takeIf { !it.isEmpty }?.let { ReceiptWord(element.text, Rect(it)) }
-                } }
+                block.lines.flatMap { line ->
+                    val elements = line.elements.mapNotNull { element ->
+                        element.boundingBox?.takeIf { !it.isEmpty }?.let { ReceiptWord(element.text, Rect(it), line.text) }
+                    }
+                    // Line buttons allow selecting multi-word merchants and split OCR dates/amounts.
+                    elements + listOfNotNull(line.boundingBox?.takeIf { !it.isEmpty }?.let {
+                        ReceiptWord(line.text, Rect(it), line.text)
+                    })
+                }
             } }.distinctBy { listOf(it.text, it.bounds.left, it.bounds.top, it.bounds.right, it.bounds.bottom) }
             SelectableReceipt(bitmap, words)
         } finally { latin.close(); chinese.close() }
