@@ -16,6 +16,15 @@ Built with Kotlin, Jetpack Compose, Room and bundled on-device ML Kit OCR.
 
 The app requests no Internet, SMS, notification access, accessibility, screen capture, camera or broad storage permissions. OCR models are bundled. Original receipts and the Room database stay in app-private storage. Android automatic backup is disabled for this prototype.
 
+## Version 0.4.0 — photo and tap to fill
+
+- **Home → Scan receipt** opens the phone's camera to capture a full-resolution still photo. Confirm the photo to freeze it and open the field selection screen.
+- Choose **Amount**, **Receipt No.** or **Date**, then tap a recognized word box to fill that field. The selected field stays editable. Use **Show detected text** for larger text buttons when boxes are too small.
+- **Done · Review expense** returns to the existing expense form; select currency and account, check the details, then **Save expense**. Camera receipts stay drafts even when Quick save is enabled.
+- The same **Tap receipt to fill fields** action is available for imported image receipts. PDF/text intake keeps its existing review flow.
+- This first version scans a frozen photo. Live video overlays, automatic receipt cropping and automatic classification of each text box are not included.
+- The system camera receives temporary access to one private cache file through a non-exported FileProvider. Expense adds no camera, microphone or storage permissions. Temporary captures are removed after intake/cancellation; abandoned captures older than a day are cleared on the next camera launch.
+
 ## Version 0.3.0
 
 - English interface, application name, categories, payment methods, error messages and generated exports. Original receipt text and user-authored names/notes are preserved.

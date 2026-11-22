@@ -1,5 +1,21 @@
 # Validation and acceptance
 
+## Version 0.4.0 photo selection
+
+Automated checks and device acceptance are separate. New core tests check selected amounts (thousands separators, precision, negatives, overflow and ambiguous values), selected dates/references and preview letterboxing coordinates.
+
+Device acceptance remains pending:
+
+- Scan receipt: camera opens, full-size photo returns, original is privately retained, and the frozen-photo selector opens after OCR.
+- Cancel camera, camera unavailable, zero-byte capture, or OCR failure: no saved expense; import/manual entry remains usable.
+- Quick save enabled: a captured receipt stays a draft and waits for explicit Save expense.
+- Select Amount / Receipt No. / Date and tap matching words: only the selected field changes; leading zeroes in references remain intact. Invalid or ambiguous amounts/dates show feedback and do not replace existing values.
+- Imported portrait/landscape/EXIF-rotated photos: boxes and taps align with the displayed upright image, including centered letterbox margins.
+- Small text: Show detected text opens accessible larger buttons; entered values remain editable.
+- Rotate while the camera, recognition or selector is open; background/resume; reopen draft: no duplicate receipt import, field changes remain available.
+- Done/back returns to the form; save updates records/statistics; duplicate-receipt warnings and account/currency validation still apply.
+- Build with the retained preview signing key and confirm the APK can update the previous 0.3 preview without uninstalling or losing records.
+
 ## Version 0.3.0 installation boundary
 
 The supplied preview package installs alongside the old prototype because the original debug signing key was not retained. Existing installed-app data stays with that application and is not imported by the preview. The schema migration test below validates the original application ID's data upgrade, separately from installing the isolated preview.

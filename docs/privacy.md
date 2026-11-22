@@ -1,6 +1,7 @@
 # Prototype privacy behavior
 
 - Receipt content is used for local OCR and user-confirmed expense recording.
+- Scan receipt delegates a still photo to the device's camera app. A non-exported FileProvider grants temporary access only to a capture file in private cache; the provider exposes no other receipt or database directories. Expense itself requests no camera or microphone permission. Captures are copied to private receipt storage and temporary files removed after intake, or removed on cancellation. Abandoned files older than a day are cleared on the next camera launch. The external camera app's own storage/processing behavior depends on the camera app selected by the user.
 - No backend, analytics or advertising SDK is configured. The manifest merger explicitly removes the Internet permission contributed by OCR dependencies; the final APK is checked for its absence.
 - Files are copied to the application's private `files/receipts` directory using generated filenames. Content URIs from user-authorized sharing/document selection are read; arbitrary filesystem paths and remote URLs are not fetched.
 - The importer checks actual bytes, bounded stream length and image/PDF decoding rather than trusting a source filename or declared file size.
