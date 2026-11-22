@@ -1,5 +1,26 @@
 # Validation and acceptance
 
+## Version 0.6.0 CSV interchange
+
+The CSV parser/selection tests cover original missing optional fields, header reordering and unknown columns; eleven-column exports; Chinese text/legacy labels; quoted commas, quotes and multiline notes; exact currencies/amounts and invalid dates/times; account names/card leading zeroes; new export/import identity and formula-like text; duplicate IDs/content and repeat imports after editing; malformed input and file/row bounds. A subsecond-time test verifies that transaction times are not truncated.
+
+Local checks completed on 2026-11-22: all 30 core tests and 3 existing database upgrade tests passed; `assembleTapPreview` and `lintTapPreview` passed with zero lint errors (two existing KTX suggestions remain). The final APK permission check passed. APK signature verification confirms the same certificate and application ID as 0.5 Tap Preview, with versionCode 6 / versionName 0.6.0-tap-preview. These checks are not Android device acceptance tests.
+
+The 0.6 APK retains the 0.5 Tap Preview application ID and signing key. The Room schema stays at version 2; the existing 1 → 2 database migration remains unchanged.
+
+Device acceptance remains pending:
+
+- Export saved records from the old app; choose Settings → Import CSV in Tap Preview. Cancelling the picker or preview makes no database changes.
+- Preview totals, errors, first records and duplicate counts match the file. Confirm once; saved records and matching/new accounts appear in Records, Stats and subsequent CSV export.
+- Import the same file again, including after editing an imported record: existing IDs are skipped and edits remain. Re-import old header-only/no-ID files and check deterministic identity and possible-duplicate behavior.
+- Two real purchases with identical legacy details: default skips the possible duplicate; explicitly disabling that option imports both and a repeat skips their IDs.
+- Invalid rows prevent confirmation until repaired or explicitly skipped. Missing date/amount/currency columns, malformed CSV, non-UTF-8 input, oversized files and failed reads create no expenses/accounts.
+- Existing payment accounts, including inactive ones, are reused when their method/provider/nickname/last-four match; new accounts preserve their fields and leading zeroes.
+- Confirm repeatedly, rotate during preview/import, background/resume and interrupt the process: no duplicate writes or partial account/expense batch. Room rollback behavior has not been exercised on an Android device in this session.
+- Import failure preserves existing records and keeps the preview available for retry. Import result appears only after the database transaction completes.
+- New exports/imports preserve IDs, account names containing separators, positive exact minor units, subsecond transaction times and formula-like/literal-apostrophe text. Legacy protection apostrophes stay as exported.
+- Update an installed 0.5 Tap Preview with 0.6; its records, accounts, settings and receipt files remain. CSV imported from a separate older app restores only the contents actually exported.
+
 ## Version 0.5.0 tap confirmation
 
 Core tests cover label-based classification, references with leading zeroes or decimal-like identifiers, unknown text, manual type overrides, invalid values and custom-field note retention. All 19 core tests and 3 existing database upgrade tests passed locally. The preview APK build, Android lint and packaged permission check passed. No device UI test has been performed.

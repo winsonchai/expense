@@ -5,10 +5,10 @@ import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.viewModelScope
-import com.winsonchai.expense.core.Csv
 import com.winsonchai.expense.core.Money
 import com.winsonchai.expense.core.ReceiptParser
 import com.winsonchai.expense.core.QuickSave
+import com.winsonchai.expense.core.ExpenseCsv
 import com.winsonchai.expense.data.*
 import com.winsonchai.expense.importing.*
 import kotlinx.coroutines.*
@@ -19,9 +19,15 @@ import java.io.File
 import java.time.LocalDate
 import java.time.LocalTime
 import java.time.format.DateTimeFormatter
+import java.nio.ByteBuffer
+import java.nio.charset.CodingErrorAction
 
 class ExpenseViewModel(app: Application, private val state: SavedStateHandle) : AndroidViewModel(app) {
-    private val dao = ExpenseDatabase.get(app).dao()
+    private val database = ExpenseDatabase.get(app)
+    private val dao = database.dao()
+    private val csvImporter = CsvLedgerImporter(database)
+    val csvImport = MutableStateFlow<CsvImportPreview?>(null)
+    val csvResult = MutableStateFlow<String?>(null)
     val expenses = dao.observeExpenses().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
     val accounts = dao.observeAccounts().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
     val editor = MutableStateFlow<Expense?>(null)
@@ -199,21 +205,66 @@ class ExpenseViewModel(app: Application, private val state: SavedStateHandle) : 
     }
 
     fun exportCsv(uri: Uri) {
-        val records = expenses.value.filter { it.status == "SAVED" }
-        val accountLookup = accounts.value.associateBy { it.id }
+        if (busy.value) return
         work {
+            val records = dao.allExpenses().filter { it.status == "SAVED" }.sortedWith(compareByDescending<Expense> { it.date }.thenByDescending { it.transactionTime }.thenByDescending { it.createdAt })
+            val accountLookup = dao.allAccounts().associateBy { it.id }
             withContext(Dispatchers.IO) {
                 getApplication<Application>().contentResolver.openOutputStream(uri, "wt")?.bufferedWriter(Charsets.UTF_8)?.use { writer ->
                     writer.write("\uFEFF")
-                    writer.appendLine("date,time,receipt_number,amount,currency,category,merchant,payment_method,payment_account,note,source")
+                    writer.appendLine(ExpenseCsv.headers.joinToString(","))
                     records.forEach { record ->
-                        writer.appendLine(listOf(record.date, record.transactionTime, record.receiptNo, Money.display(record.amountMinor!!, record.currency), record.currency,
-                            record.category, record.merchant, record.method, accountLookup[record.accountId]?.label().orEmpty(), record.note, record.source)
-                            .joinToString(",", transform = Csv::cell))
+                        writer.appendLine(ExpenseCsv.exportRow(record.csvRecord(accountLookup[record.accountId])))
                     }
                 } ?: error("Unable to write to the selected file.")
             }
             message.value = "Exported ${records.size} expenses. CSV does not include receipt files."
+        }
+    }
+
+    fun previewCsv(uri: Uri) {
+        if (busy.value || savingAccount.value) return
+        busy.value = true
+        csvImport.value = null
+        work {
+            try {
+                val parsed = withContext(Dispatchers.IO) {
+                    require(uri.scheme == "content") { "Choose a CSV file with the system file picker." }
+                    val bytes = getApplication<Application>().contentResolver.openInputStream(uri)?.use { input ->
+                        val out = java.io.ByteArrayOutputStream()
+                        val buffer = ByteArray(8192)
+                        while (true) {
+                            val count = input.read(buffer)
+                            if (count < 0) break
+                            require(out.size() + count <= ExpenseCsv.MAX_BYTES) { "CSV exceeds 5 MiB. Split the file before importing." }
+                            out.write(buffer, 0, count)
+                        }
+                        out.toByteArray()
+                    } ?: error("Unable to read the CSV. Choose the file again.")
+                    val text = Charsets.UTF_8.newDecoder().onMalformedInput(CodingErrorAction.REPORT)
+                        .onUnmappableCharacter(CodingErrorAction.REPORT).decode(ByteBuffer.wrap(bytes)).toString()
+                    ExpenseCsv.parse(text)
+                }
+                csvImport.value = csvImporter.preview(parsed)
+            } catch (e: java.nio.charset.CharacterCodingException) {
+                message.value = "This is not a UTF-8 CSV file. Use Export CSV from Expense or save it as UTF-8 CSV."
+            } finally { busy.value = false }
+        }
+    }
+
+    fun dismissCsvImport() { if (!busy.value) csvImport.value = null }
+    fun dismissCsvResult() { csvResult.value = null }
+    fun confirmCsvImport(skipPossibleDuplicates: Boolean, skipInvalid: Boolean) {
+        val preview = csvImport.value ?: return
+        if (busy.value || savingAccount.value) return
+        if (!skipInvalid && preview.parsed.problems.isNotEmpty()) { message.value = "Fix invalid records or explicitly choose to skip them."; return }
+        busy.value = true
+        work {
+            try {
+                val result = writes.withLock { csvImporter.importRecords(preview, skipPossibleDuplicates, skipInvalid) }
+                csvImport.value = null
+                csvResult.value = result
+            } finally { busy.value = false }
         }
     }
 }

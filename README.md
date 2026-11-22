@@ -16,6 +16,18 @@ Built with Kotlin, Jetpack Compose, Room and bundled on-device ML Kit OCR.
 
 The app requests no Internet, SMS, notification access, accessibility, screen capture, camera or broad storage permissions. OCR models are bundled. Original receipts and the Room database stay in app-private storage. Android automatic backup is disabled for this prototype.
 
+## Version 0.6.0 — restore saved expenses from CSV
+
+- In the old app, choose **Export CSV** and retain that file. In the new app, choose **Settings → Import CSV**, select the file, review the preview and press **Import records**.
+- Original nine-column exports and later exports with time/receipt number are accepted. Columns are matched by name; unknown extra columns are ignored, and optional missing fields stay empty or use existing defaults. UTF-8 BOM, quoted commas, double quotes, multiline notes and supported legacy Chinese labels/headers are handled.
+- Dates, times, currencies, positive exact amounts and account details are validated. Invalid rows are listed with their CSV record numbers; importing the valid subset requires an explicit choice to skip the invalid rows. Malformed CSV/UTF-8 or missing required headers reject the file without writing anything.
+- Existing record IDs are always skipped. Matching expense details, including matches inside the file, are possible duplicates and skipped by default. Disable **Skip possible duplicates** only for verified separate purchases with identical details. Duplicate checks are repeated against current data inside the import transaction; existing expenses are never overwritten.
+- Matching payment accounts are reused; missing accounts are created for records actually imported. Account creation and expense insertion use one Room transaction. No database schema change is needed.
+- New exports add stable expense IDs, separate account fields and CSV format metadata for future versions. Spreadsheet-safety escaping remains enabled, with explicit metadata for lossless new-format round trips. Safety apostrophes already present in legacy exports are retained because their original intent cannot be reconstructed.
+- CSV restores **saved expenses and their linked account details**. It does not contain receipt images/PDFs, unsaved drafts, unlinked accounts, settings or original creation timestamps, and is not a complete app backup.
+- Maximum file size: 5 MiB; maximum data records: 10,000. Use an unmodified Export CSV file where possible. Ambiguous old account labels containing the separator require explicit account_provider/account_nickname columns rather than guessing.
+- The supplied **Expense Tap Preview 0.6** keeps the 0.5 package ID and retained signing key, so it can update that test app. Export from an older separate app and import into this app to move its saved records. Keep the old app until you have checked the imported records.
+
 ## Version 0.5.0 — tap, classify, edit and confirm
 
 - Tap text directly on the receipt in the expense form or enlarged photo. A confirmation window suggests Amount, Receipt No., Date, Time, Merchant or Other from the selected text and its receipt line.
@@ -88,11 +100,11 @@ Limits: one file at a time, 20 MiB maximum, PDF up to 5 pages, shared text up to
 - Refunds, failed/pending payments, top-ups, transfers and card repayments trigger a warning when recognized. The app records positive expenses only; it does not implement an asset ledger or refund accounting.
 - Receipt hashes identify identical bytes / identical shared text. They do not detect every duplicate transaction, and same date/amount alone is not used to reject purchases.
 - Merchant and category default to manual review. No bank APIs, automatic transaction monitoring, voice commands or protected-screen capture are implemented.
-- CSV is an analysis export, **not a restorable backup**: it excludes attachments and drafts. Full backup/restore, app lock, database encryption and cloud synchronization are not implemented. Uninstalling the app removes local records and originals.
+- CSV can restore saved expense details and their linked account fields through **Settings → Import CSV**. It excludes attachments and drafts and is not a complete backup. Full backup/restore, app lock, database encryption and cloud synchronization are not implemented. Uninstalling the app removes local records and originals.
 
 ## Structure
 
-- `core/`: pure Kotlin receipt parsing, exact money validation and CSV escaping, with unit tests.
+- `core/`: pure Kotlin receipt parsing, exact money validation, CSV parsing/export and duplicate selection, with unit tests.
 - `app/`: Compose UI, Room storage, share/picker intake, local receipt copy and OCR.
 - `docs/`: scope, privacy and manual acceptance tests.
 - `.github/workflows/android.yml`: repeatable checks and debug APK artifacts.

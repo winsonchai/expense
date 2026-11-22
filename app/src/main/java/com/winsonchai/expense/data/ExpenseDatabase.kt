@@ -54,6 +54,10 @@ interface ExpenseDao {
     fun observeExpenses(): Flow<List<Expense>>
     @Query("SELECT * FROM accounts ORDER BY provider, nickname")
     fun observeAccounts(): Flow<List<PaymentAccount>>
+    @Query("SELECT * FROM expenses")
+    suspend fun allExpenses(): List<Expense>
+    @Query("SELECT * FROM accounts")
+    suspend fun allAccounts(): List<PaymentAccount>
     @Query("SELECT * FROM expenses WHERE id = :id")
     suspend fun expense(id: String): Expense?
     @Query("SELECT EXISTS(SELECT 1 FROM expenses WHERE receiptHash = :hash AND id != :id)")

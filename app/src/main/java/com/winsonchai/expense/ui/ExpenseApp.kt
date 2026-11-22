@@ -77,9 +77,11 @@ fun ExpenseApp(model: ExpenseViewModel) {
     val snackbar = remember { SnackbarHostState() }
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> uri?.let { model.receive(uri = it) } }
     val export = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/csv")) { uri -> uri?.let(model::exportCsv) }
+    val csvPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> uri?.let(model::previewCsv) }
     LaunchedEffect(message) { message?.let { snackbar.showSnackbar(it); if (model.message.value == it) model.message.value = null } }
     BackHandler(editor != null) { model.close() }
     MaterialTheme(colorScheme = lightColorScheme(primary = Teal, secondary = Color(0xFF496563), background = Color(0xFFF7F8FA))) {
+        CsvImportDialogs(model)
         if (addedAccount != null) AlertDialog(
             onDismissRequest = model::dismissAccountAdded,
             title = { Text("Account added") },
@@ -115,7 +117,7 @@ fun ExpenseApp(model: ExpenseViewModel) {
                             1 -> Records(expenses, accounts, model::open)
                             2 -> Statistics(expenses, accounts)
                             3 -> Accounts(accounts, model)
-                            4 -> Settings(model)
+                            4 -> Settings(model, { csvPicker.launch(arrayOf("*/*")) }, { export.launch("expense-${YearMonth.now()}.csv") })
                         }
                         Spacer(Modifier.height(24.dp))
                     }
@@ -261,8 +263,15 @@ private fun ReceiptPreview(model: ExpenseViewModel, expense: Expense) {
 }
 
 @Composable
-private fun Settings(model: ExpenseViewModel) {
+private fun Settings(model: ExpenseViewModel, importCsv: () -> Unit, exportCsv: () -> Unit) {
     val quickSave by model.quickSave.collectAsStateWithLifecycle()
+    val busy by model.busy.collectAsStateWithLifecycle()
+    val savingAccount by model.savingAccount.collectAsStateWithLifecycle()
+    SectionTitle("Move saved records between versions")
+    Text("In the old app, use Export CSV and keep the file. Import it here to preview and restore saved expenses and payment accounts. CSV does not include receipt files or unsaved drafts.", style = MaterialTheme.typography.bodySmall)
+    Button(onClick = importCsv, enabled = !busy && !savingAccount, modifier = Modifier.fillMaxWidth()) { Text("Import CSV") }
+    OutlinedButton(onClick = exportCsv, enabled = !busy, modifier = Modifier.fillMaxWidth()) { Text("Export CSV") }
+    if (busy) { LinearProgressIndicator(Modifier.fillMaxWidth()); Text("Processing. Please wait…") }
     SectionTitle("Import options")
     Card(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
