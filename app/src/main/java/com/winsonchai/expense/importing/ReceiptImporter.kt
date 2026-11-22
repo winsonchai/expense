@@ -4,6 +4,7 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Matrix
+import android.graphics.Rect
 import android.graphics.pdf.PdfRenderer
 import android.net.Uri
 import android.os.ParcelFileDescriptor
@@ -24,8 +25,27 @@ const val MAX_RECEIPT_BYTES = 20L * 1024 * 1024
 const val MAX_TEXT_CHARS = 100_000
 
 data class ImportedReceipt(val path: String?, val mime: String, val hash: String, val text: String)
+data class ReceiptWord(val text: String, val bounds: Rect)
+data class SelectableReceipt(val bitmap: Bitmap, val words: List<ReceiptWord>)
 
 class ReceiptImporter(private val context: Context) {
+    /** OCR boxes and preview share the same upright bitmap, so EXIF rotation cannot misalign taps. */
+    suspend fun selectable(path: String): SelectableReceipt = withContext(Dispatchers.IO) {
+        val bitmap = decodeImage(File(path))
+        val latin = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
+        val chinese = TextRecognition.getClient(ChineseTextRecognizerOptions.Builder().build())
+        try {
+            val input = InputImage.fromBitmap(bitmap, 0)
+            val results = listOf(latin.process(input).await(), chinese.process(input).await())
+            val words = results.flatMap { result -> result.textBlocks.flatMap { block ->
+                block.lines.flatMap { line -> line.elements.mapNotNull { element ->
+                    element.boundingBox?.takeIf { !it.isEmpty }?.let { ReceiptWord(element.text, Rect(it)) }
+                } }
+            } }.distinctBy { listOf(it.text, it.bounds.left, it.bounds.top, it.bounds.right, it.bounds.bottom) }
+            SelectableReceipt(bitmap, words)
+        } finally { latin.close(); chinese.close() }
+    }
+
     /** Copy while the calling intent's read grant is valid. Never trust the filename or claimed size. */
     suspend fun copy(uri: Uri): ImportedReceipt = withContext(Dispatchers.IO) {
         require(uri.scheme == "content") { "Use a file authorized by system sharing or the document picker." }

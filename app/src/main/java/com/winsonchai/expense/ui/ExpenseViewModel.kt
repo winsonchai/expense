@@ -112,18 +112,25 @@ class ExpenseViewModel(app: Application, private val state: SavedStateHandle) : 
         }
     }
 
-    fun receive(uri: Uri? = null, text: String? = null) {
-        if (busy.value) { message.value = "Another receipt is being processed. Share this one again when it finishes."; return }
+    fun receive(uri: Uri? = null, text: String? = null, fromCamera: Boolean = false) {
+        if (busy.value) {
+            message.value = if (fromCamera) "Another receipt is being processed. Take the photo again when it finishes."
+                else "Another receipt is being processed. Share this one again when it finishes."
+            if (fromCamera && uri != null) work { withContext(Dispatchers.IO) {
+                runCatching { getApplication<Application>().contentResolver.delete(uri, null, null) }
+            } }
+            return
+        }
         busy.value = true
         work {
-            var draft = Expense(source = if (uri == null) "Shared text" else "Shared file", warnings = "Import is incomplete. Check the details or import the receipt again.")
+            var draft = Expense(source = if (fromCamera) "Camera" else if (uri == null) "Shared text" else "Shared file", warnings = "Import is incomplete. Check the details or import the receipt again.")
             try {
                 writes.withLock { dao.put(draft) }
                 editor.value = draft
                 state["editingId"] = draft.id
                 val imported = if (uri != null) importer.copy(uri) else importer.text(text.orEmpty())
                 draft = draft.copy(receiptPath = imported.path, receiptHash = imported.hash, mimeType = imported.mime,
-                    rawText = imported.text, source = when (imported.mime) { "text/plain" -> "Shared text"; "application/pdf" -> "Shared PDF"; else -> "Shared image" })
+                    rawText = imported.text, source = if (fromCamera) "Camera" else when (imported.mime) { "text/plain" -> "Shared text"; "application/pdf" -> "Shared PDF"; else -> "Shared image" })
                 // Retain the private original even if PDF decoding or OCR fails, or the process is stopped.
                 writes.withLock { dao.put(draft) }
                 editor.value = draft
@@ -135,7 +142,8 @@ class ExpenseViewModel(app: Application, private val state: SavedStateHandle) : 
                     warnings = parsed.warnings.joinToString("\n"), accountId = account?.id, method = account?.method ?: "Unspecified",
                     receiptNo = parsed.receiptNo.orEmpty(), transactionTime = parsed.transactionTime.orEmpty())
                 val duplicate = draft.receiptHash?.let { dao.hasDuplicate(it, draft.id) } ?: false
-                if (QuickSave.eligible(quickSave.value, parsed, duplicate)) {
+                // Camera intake must remain a draft so the user can tap the frozen receipt.
+                if (!fromCamera && QuickSave.eligible(quickSave.value, parsed, duplicate)) {
                     val saved = draft.copy(status = "SAVED", amountMinor = Money.minorUnits(draft.amountInput, draft.currency))
                     writes.withLock { dao.put(saved) }
                     editor.value = null
@@ -143,7 +151,7 @@ class ExpenseViewModel(app: Application, private val state: SavedStateHandle) : 
                     message.value = "Expense saved automatically. Open it in Records to edit the details."
                     return@work
                 }
-                if (quickSave.value) draft = draft.copy(warnings = (listOf(
+                if (!fromCamera && quickSave.value) draft = draft.copy(warnings = (listOf(
                     if (duplicate) "This receipt was imported before. Check the existing record before saving again."
                     else "Quick save needs clear required fields. Complete this draft and save it."
                 ) + parsed.warnings).joinToString("\n"))
@@ -154,7 +162,12 @@ class ExpenseViewModel(app: Application, private val state: SavedStateHandle) : 
                 draft = draft.copy(warnings = "Recognition could not finish: ${e.message ?: "Unable to read the receipt"}. Keep the draft and enter the details manually.")
                 writes.withLock { dao.put(draft) }
                 editor.value = draft
-            } finally { busy.value = false }
+            } finally {
+                if (fromCamera && uri != null) withContext(NonCancellable + Dispatchers.IO) {
+                    runCatching { getApplication<Application>().contentResolver.delete(uri, null, null) }
+                }
+                busy.value = false
+            }
         }
     }
 

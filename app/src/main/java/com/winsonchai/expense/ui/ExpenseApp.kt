@@ -1,6 +1,8 @@
 package com.winsonchai.expense.ui
 
 import android.graphics.Bitmap
+import android.net.Uri
+import android.content.Intent
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -18,15 +20,18 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.core.content.FileProvider
 import com.winsonchai.expense.core.Money
 import com.winsonchai.expense.data.*
 import java.math.BigInteger
+import java.io.File
 import java.time.YearMonth
 import java.util.Currency
 
@@ -34,6 +39,34 @@ private val Teal = Color(0xFF006A60)
 
 @Composable
 fun ExpenseApp(model: ExpenseViewModel) {
+    val context = LocalContext.current
+    var pendingCameraUri by rememberSaveable { mutableStateOf<String?>(null) }
+    val camera = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { taken ->
+        val uri = pendingCameraUri?.let(Uri::parse)
+        pendingCameraUri = null
+        uri?.let {
+            context.revokeUriPermission(it, Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
+            if (taken) model.receive(uri = it, fromCamera = true)
+            else runCatching { context.contentResolver.delete(it, null, null) }
+        }
+    }
+    val takeReceipt: () -> Unit = {
+        if (!model.busy.value && pendingCameraUri == null) {
+            runCatching {
+                val directory = File(context.cacheDir, "receipt-camera").apply { mkdirs() }
+                // Abandoned captures are temporary; never delete an in-flight camera file.
+                directory.listFiles()?.filter { System.currentTimeMillis() - it.lastModified() > 86_400_000 }?.forEach { it.delete() }
+                val file = File.createTempFile("receipt-", ".jpg", directory)
+                val uri = FileProvider.getUriForFile(context, "${context.packageName}.receipt-camera", file)
+                pendingCameraUri = uri.toString()
+                camera.launch(uri)
+            }.onFailure {
+                pendingCameraUri?.let { value -> runCatching { context.contentResolver.delete(Uri.parse(value), null, null) } }
+                pendingCameraUri = null
+                model.message.value = "Unable to open the camera. Try Import receipt or add the details manually."
+            }
+        }
+    }
     val expenses by model.expenses.collectAsStateWithLifecycle()
     val accounts by model.accounts.collectAsStateWithLifecycle()
     val editor by model.editor.collectAsStateWithLifecycle()
@@ -78,7 +111,7 @@ fun ExpenseApp(model: ExpenseViewModel) {
                     Column(Modifier.verticalScroll(rememberScrollState()).weight(1f), verticalArrangement = Arrangement.spacedBy(14.dp)) {
                         when (tab) {
                             0 -> Home(expenses, accounts, model::open, model::newExpense,
-                                { picker.launch(arrayOf("image/*", "application/pdf")) })
+                                { picker.launch(arrayOf("image/*", "application/pdf")) }, takeReceipt)
                             1 -> Records(expenses, accounts, model::open)
                             2 -> Statistics(expenses, accounts)
                             3 -> Accounts(accounts, model)
@@ -93,7 +126,7 @@ fun ExpenseApp(model: ExpenseViewModel) {
 }
 
 @Composable
-private fun Home(expenses: List<Expense>, accounts: List<PaymentAccount>, open: (Expense) -> Unit, add: () -> Unit, import: () -> Unit) {
+private fun Home(expenses: List<Expense>, accounts: List<PaymentAccount>, open: (Expense) -> Unit, add: () -> Unit, import: () -> Unit, scan: () -> Unit) {
     val month = YearMonth.now().toString()
     Card(colors = CardDefaults.cardColors(containerColor = Teal), modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.padding(22.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -110,6 +143,8 @@ private fun Home(expenses: List<Expense>, accounts: List<PaymentAccount>, open: 
         Button(onClick = add, modifier = Modifier.weight(1f)) { Text("+ Add expense") }
         OutlinedButton(onClick = import, modifier = Modifier.weight(1f)) { Text("Import receipt") }
     }
+    OutlinedButton(onClick = scan, modifier = Modifier.fillMaxWidth()) { Text("Scan receipt") }
+    Text("Take a photo, then tap the detected amount, receipt number or date to fill the form.", style = MaterialTheme.typography.bodySmall)
     Text("After paying, share the receipt from your wallet to Expense. Review and save, or enable Quick save in Settings.", style = MaterialTheme.typography.bodyMedium)
     val drafts = expenses.filter { it.status == "DRAFT" }
     if (drafts.isNotEmpty()) {
@@ -167,6 +202,7 @@ private fun ColumnScope.Editor(model: ExpenseViewModel, expense: Expense, expens
     var reviewed by rememberSaveable(expense.id) { mutableStateOf(false) }
     var duplicateAccepted by rememberSaveable(expense.id) { mutableStateOf(false) }
     var deleteDialog by remember { mutableStateOf(false) }
+    var selecting by rememberSaveable(expense.id) { mutableStateOf(expense.source == "Camera" && expense.status == "DRAFT") }
     val duplicate = expenses.any { expense.receiptHash != null && it.id != expense.id && it.receiptHash == expense.receiptHash }
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         TextButton(onClick = model::close, enabled = !busy) { Text("Back") }
@@ -176,6 +212,9 @@ private fun ColumnScope.Editor(model: ExpenseViewModel, expense: Expense, expens
     if (busy) { LinearProgressIndicator(Modifier.fillMaxWidth()); Text("Processing receipt. Please wait…") }
     Column(Modifier.weight(1f).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         if (expense.receiptPath != null) ReceiptPreview(model, expense)
+        if (expense.receiptPath != null && expense.mimeType?.startsWith("image/") == true) {
+            OutlinedButton(onClick = { selecting = true }, enabled = !busy, modifier = Modifier.fillMaxWidth()) { Text("Tap receipt to fill fields") }
+        }
         if (expense.warnings.isNotBlank()) Notice(expense.warnings)
         if (duplicate) {
             Notice("This receipt was imported before. Check the existing record in Home or Records to avoid a duplicate.")
@@ -205,6 +244,9 @@ private fun ColumnScope.Editor(model: ExpenseViewModel, expense: Expense, expens
         if (expense.status == "DRAFT") Text("Changes are kept as a draft. Only saved expenses appear in statistics.", style = MaterialTheme.typography.bodySmall)
         Button(onClick = { model.save(reviewed, duplicateAccepted) }, enabled = !busy, modifier = Modifier.fillMaxWidth()) { Text("Save expense") }
         Spacer(Modifier.height(20.dp))
+    }
+    if (selecting && !busy && expense.receiptPath != null && expense.mimeType?.startsWith("image/") == true) {
+        ReceiptSelectionDialog(model, expense, onDismiss = { selecting = false })
     }
     if (deleteDialog) AlertDialog(onDismissRequest = { deleteDialog = false }, title = { Text("Delete this expense?") },
         text = { Text("The expense and its original receipt will be removed from this device.") }, confirmButton = {
