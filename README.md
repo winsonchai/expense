@@ -4,6 +4,10 @@ Android personal expense tracker for Malaysia, with MYR as the default currency.
 Share a receipt to the app, review the extracted fields, and save the expense. The interface is English. Quick save can skip the review screen for complete, unambiguous receipts.
 Built with Kotlin, Jetpack Compose, Room and bundled on-device ML Kit OCR.
 
+## Manage categories
+
+Open **Settings → Manage categories** to add, rename, or delete categories. Renaming updates saved expenses and drafts. Deleting moves affected records to **Uncategorized**, which stays available as a fallback.
+
 ## First prototype
 
 - Android share target for one image, text receipt or PDF; also import through the system document picker.

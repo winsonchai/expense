@@ -67,6 +67,7 @@ fun ExpenseApp(model: ExpenseViewModel) {
             }
         }
     }
+    val categoryNames by model.categoryNames.collectAsStateWithLifecycle()
     val expenses by model.expenses.collectAsStateWithLifecycle()
     val accounts by model.accounts.collectAsStateWithLifecycle()
     val editor by model.editor.collectAsStateWithLifecycle()
@@ -101,7 +102,7 @@ fun ExpenseApp(model: ExpenseViewModel) {
         ) { insets ->
             Column(Modifier.fillMaxSize().padding(insets).imePadding().padding(horizontal = 20.dp)) {
                 if (editor != null) {
-                    Editor(model, editor!!, expenses, accounts, busy)
+                    Editor(model, editor!!, expenses, accounts, categoryNames, busy)
                 } else {
                     Row(Modifier.fillMaxWidth().padding(vertical = 20.dp), verticalAlignment = Alignment.CenterVertically) {
                         Column(Modifier.weight(1f)) {
@@ -114,10 +115,10 @@ fun ExpenseApp(model: ExpenseViewModel) {
                         when (tab) {
                             0 -> Home(expenses, accounts, model::open, model::newExpense,
                                 { picker.launch(arrayOf("image/*", "application/pdf")) }, takeReceipt)
-                            1 -> Records(expenses, accounts, model::open)
+                            1 -> Records(expenses, accounts, categoryNames, model::open)
                             2 -> Statistics(expenses, accounts)
                             3 -> Accounts(accounts, model)
-                            4 -> Settings(model, { csvPicker.launch(arrayOf("*/*")) }, { export.launch("expense-${YearMonth.now()}.csv") })
+                            4 -> Settings(model, categoryNames, { csvPicker.launch(arrayOf("*/*")) }, { export.launch("expense-${YearMonth.now()}.csv") })
                         }
                         Spacer(Modifier.height(24.dp))
                     }
@@ -160,16 +161,17 @@ private fun Home(expenses: List<Expense>, accounts: List<PaymentAccount>, open: 
 }
 
 @Composable
-private fun Records(expenses: List<Expense>, accounts: List<PaymentAccount>, open: (Expense) -> Unit) {
+private fun Records(expenses: List<Expense>, accounts: List<PaymentAccount>, categoryNames: List<String>, open: (Expense) -> Unit) {
     var query by rememberSaveable { mutableStateOf("") }
-    var category by rememberSaveable { mutableStateOf("All categories") }
+    var category by rememberSaveable { mutableStateOf("") }
     var accountId by rememberSaveable { mutableStateOf("") }
     SectionTitle("Expense records")
     Field(query, "Search merchant, date, receipt number or notes", { query = it })
-    Choice("Category", listOf("All categories") + categories, category, { category = it })
+    val selectedCategory = category.takeIf { it in categoryNames }.orEmpty()
+    Choice("Category", listOf("" to "All categories") + categoryNames.map { it to it }, selectedCategory, { category = it })
     Choice("Accounts", listOf("" to "All accounts") + accounts.map { it.id to it.label() }, accountId, { accountId = it })
     val filtered = expenses.filter { expense ->
-        (category == "All categories" || expense.category == category) && (accountId.isEmpty() || expense.accountId == accountId) &&
+        (selectedCategory.isEmpty() || expense.category == selectedCategory) && (accountId.isEmpty() || expense.accountId == accountId) &&
             (query.isBlank() || "${expense.date} ${expense.transactionTime} ${expense.receiptNo} ${expense.merchant} ${expense.note}".contains(query, ignoreCase = true))
     }
     if (filtered.isEmpty()) EmptyState("No matching records", "Try different search filters.")
@@ -199,7 +201,7 @@ private fun Statistics(expenses: List<Expense>, accounts: List<PaymentAccount>) 
 }
 
 @Composable
-private fun ColumnScope.Editor(model: ExpenseViewModel, expense: Expense, expenses: List<Expense>, accounts: List<PaymentAccount>, busy: Boolean) {
+private fun ColumnScope.Editor(model: ExpenseViewModel, expense: Expense, expenses: List<Expense>, accounts: List<PaymentAccount>, categoryNames: List<String>, busy: Boolean) {
     val quickSave by model.quickSave.collectAsStateWithLifecycle()
     var reviewed by rememberSaveable(expense.id) { mutableStateOf(false) }
     var duplicateAccepted by rememberSaveable(expense.id) { mutableStateOf(false) }
@@ -228,7 +230,7 @@ private fun ColumnScope.Editor(model: ExpenseViewModel, expense: Expense, expens
         Choice("Currency", currencies, expense.currency, { value -> model.edit { it.copy(currency = value) } }, !busy)
         Field(expense.date, "Transaction date YYYY-MM-DD (required)", { value -> model.edit { it.copy(date = value) } }, !busy)
         Field(expense.transactionTime, "Transaction time HH:mm:ss (optional)", { value -> model.edit { it.copy(transactionTime = value) } }, !busy)
-        Choice("Category", categories, expense.category, { value -> model.edit { it.copy(category = value) } }, !busy)
+        Choice("Category", (categoryNames + expense.category).distinct(), expense.category, { value -> model.edit { it.copy(category = value) } }, !busy)
         Field(expense.merchant, "Merchant", { value -> model.edit { it.copy(merchant = value) } }, !busy)
         Field(expense.receiptNo, "Receipt / Invoice No. (optional)", { value -> model.edit { it.copy(receiptNo = value) } }, !busy)
         Choice("Payment method", paymentMethods, expense.method, { value -> model.edit { it.copy(method = value, accountId = null) } }, !busy)
@@ -263,10 +265,11 @@ private fun ReceiptPreview(model: ExpenseViewModel, expense: Expense) {
 }
 
 @Composable
-private fun Settings(model: ExpenseViewModel, importCsv: () -> Unit, exportCsv: () -> Unit) {
+private fun Settings(model: ExpenseViewModel, categoryNames: List<String>, importCsv: () -> Unit, exportCsv: () -> Unit) {
     val quickSave by model.quickSave.collectAsStateWithLifecycle()
     val busy by model.busy.collectAsStateWithLifecycle()
     val savingAccount by model.savingAccount.collectAsStateWithLifecycle()
+    CategorySettings(model, categoryNames, busy)
     SectionTitle("Move saved records between versions")
     Text("In the old app, use Export CSV and keep the file. Import it here to preview and restore saved expenses and payment accounts. CSV does not include receipt files or unsaved drafts.", style = MaterialTheme.typography.bodySmall)
     Button(onClick = importCsv, enabled = !busy && !savingAccount, modifier = Modifier.fillMaxWidth()) { Text("Import CSV") }

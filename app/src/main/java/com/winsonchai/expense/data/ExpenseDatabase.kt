@@ -8,7 +8,7 @@ import kotlinx.coroutines.flow.Flow
 import java.util.UUID
 
 val paymentMethods = listOf("Unspecified", "Cash", "E-wallet", "Credit card", "Debit card", "Bank transfer", "Prepaid card", "Other")
-val categories = listOf("Uncategorized", "Food & drinks", "Transport", "Groceries", "Shopping", "Household bills", "Health", "Leisure & travel", "Other")
+private val defaultCategories = listOf("Uncategorized", "Food & drinks", "Transport", "Groceries", "Shopping", "Household bills", "Health", "Leisure & travel", "Other")
 val currencies = listOf("MYR", "SGD", "USD", "AUD", "EUR", "CNY", "THB", "INR", "IDR", "JPY", "BHD", "KWD")
 
 @Entity(tableName = "expenses")
@@ -48,8 +48,23 @@ data class PaymentAccount(
     fun label(): String = "$provider · $nickname" + if (lastFour.isBlank()) "" else " · $lastFour"
 }
 
+@Entity(tableName = "categories")
+data class ExpenseCategory(@PrimaryKey val name: String)
+
 @Dao
 interface ExpenseDao {
+    @Query("SELECT name FROM categories UNION SELECT category FROM expenses ORDER BY name COLLATE NOCASE")
+    fun observeCategories(): Flow<List<String>>
+    @Query("SELECT name FROM categories UNION SELECT category FROM expenses")
+    suspend fun allCategoryNames(): List<String>
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun insertCategory(category: ExpenseCategory)
+    @Query("UPDATE expenses SET category = :replacement WHERE category = :original")
+    suspend fun replaceCategoryOnExpenses(original: String, replacement: String)
+    @Query("DELETE FROM categories WHERE name = :name")
+    suspend fun deleteCategory(name: String)
+
+
     @Query("SELECT * FROM expenses ORDER BY date DESC, transactionTime DESC, createdAt DESC")
     fun observeExpenses(): Flow<List<Expense>>
     @Query("SELECT * FROM accounts ORDER BY provider, nickname")
@@ -73,10 +88,16 @@ interface ExpenseDao {
     }
 }
 
-@Database(entities = [Expense::class, PaymentAccount::class], version = 2, exportSchema = true)
+@Database(entities = [Expense::class, PaymentAccount::class, ExpenseCategory::class], version = 3, exportSchema = true)
 abstract class ExpenseDatabase : RoomDatabase() {
     abstract fun dao(): ExpenseDao
     companion object {
+        private fun seedCategories(db: SupportSQLiteDatabase) {
+            defaultCategories.forEach { name ->
+                db.execSQL("INSERT OR IGNORE INTO categories (name) VALUES (?)", arrayOf(name))
+            }
+        }
+
         @Volatile private var instance: ExpenseDatabase? = null
         fun get(context: Context): ExpenseDatabase = instance ?: synchronized(this) {
             instance ?: Room.databaseBuilder(context.applicationContext, ExpenseDatabase::class.java, "expense.db")
@@ -86,6 +107,13 @@ abstract class ExpenseDatabase : RoomDatabase() {
                             lines.map(String::trim).filter { it.isNotEmpty() && !it.startsWith("--") }.forEach(db::execSQL)
                         }
                     }
+                }, object : Migration(2, 3) {
+                    override fun migrate(db: SupportSQLiteDatabase) {
+                        db.execSQL("CREATE TABLE IF NOT EXISTS categories (name TEXT NOT NULL PRIMARY KEY)")
+                        seedCategories(db)
+                    }
+                }).addCallback(object : Callback() {
+                    override fun onCreate(db: SupportSQLiteDatabase) = seedCategories(db)
                 }).build().also { instance = it }
         }
     }
