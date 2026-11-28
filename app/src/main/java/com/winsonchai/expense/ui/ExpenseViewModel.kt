@@ -5,6 +5,7 @@ import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.viewModelScope
+import androidx.room.withTransaction
 import com.winsonchai.expense.core.Money
 import com.winsonchai.expense.core.ReceiptParser
 import com.winsonchai.expense.core.QuickSave
@@ -30,6 +31,7 @@ class ExpenseViewModel(app: Application, private val state: SavedStateHandle) : 
     val csvResult = MutableStateFlow<String?>(null)
     val expenses = dao.observeExpenses().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
     val accounts = dao.observeAccounts().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+    val categoryNames = dao.observeCategories().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
     val editor = MutableStateFlow<Expense?>(null)
     val busy = MutableStateFlow(false)
     val message = MutableStateFlow<String?>(null)
@@ -55,6 +57,42 @@ class ExpenseViewModel(app: Application, private val state: SavedStateHandle) : 
         try { block() }
         catch (e: CancellationException) { throw e }
         catch (e: Exception) { message.value = e.message ?: "The operation failed. Please try again." }
+    }
+
+    fun saveCategory(original: String?, input: String) {
+        val name = input.trim()
+        if (name.isEmpty() || name.length > 80 || name.equals("Uncategorized", ignoreCase = true)) {
+            message.value = "Enter a category name between 1 and 80 characters. Uncategorized is reserved."
+            return
+        }
+        changeCategory(original, name)
+    }
+
+    fun deleteCategory(name: String) = changeCategory(name, null)
+
+    private fun changeCategory(original: String?, replacement: String?) {
+        if (busy.value || editor.value != null || original == replacement || original == "Uncategorized") return
+        busy.value = true
+        work {
+            try {
+                writes.withLock {
+                    database.withTransaction {
+                        val names = dao.allCategoryNames()
+                        if (replacement != null && names.any { it != original && it.equals(replacement, ignoreCase = true) }) {
+                            message.value = "A category with that name already exists."
+                            return@withTransaction
+                        }
+                        if (replacement != null) dao.insertCategory(ExpenseCategory(replacement))
+                        if (original != null) {
+                            dao.replaceCategoryOnExpenses(original, replacement ?: "Uncategorized")
+                            dao.deleteCategory(original)
+                        }
+                    }
+                }
+            } finally {
+                busy.value = false
+            }
+        }
     }
 
     fun open(expense: Expense) {
